@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <title>Nightshift · Suche</title>
+  {% include "_head.html" %}
+  <style>
+    .search-row { display: flex; gap: 0.6rem; }
+    .search-row input { flex: 1; }
+    .tabs { display: flex; gap: 0.4rem; margin-top: 0.9rem; }
+    .tabs button {
+      background: none; border: 1px solid var(--line); color: var(--ink-dim);
+      border-radius: 999px; padding: 0.3rem 0.9rem;
+      font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tabs button.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 1rem; margin-top: 1.25rem;
+    }
+    .tile {
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--radius); overflow: hidden;
+      display: flex; flex-direction: column;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .tile:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .tile .art {
+      aspect-ratio: 1; width: 100%; object-fit: cover;
+      background: var(--surface-2); display: block; cursor: pointer;
+    }
+    .tile .art.noimg { display: grid; place-items: center; color: var(--ink-faint); font-size: 1.6rem; }
+    .tile .info { padding: 0.6rem 0.7rem 0.7rem; display: flex; flex-direction: column; gap: 0.15rem; flex: 1; }
+    .tile b { font-size: 0.82rem; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .tile small { color: var(--ink-faint); font-size: 0.72rem; }
+    .tile .dl {
+      margin-top: auto; padding-top: 0.5rem;
+    }
+    .tile .dl button {
+      width: 100%; background: var(--surface-2); border: 1px solid var(--line);
+      color: var(--ink); border-radius: 7px; padding: 0.45rem;
+      font-family: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tile .dl button:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    .tile .dl button:disabled { opacity: 0.6; cursor: default; }
+    .tile.playing .art { outline: 2px solid var(--accent); outline-offset: -2px; }
+  </style>
+</head>
+<body>
+  {% include "_topbar.html" %}
+  <main class="container">
+    <h1 class="page-title" data-i18n="search.title">Suche</h1>
+    <p class="page-sub" data-i18n="search.hint"></p>
+
+    <section class="card">
+      <div class="search-row">
+        <input type="text" id="q" data-i18n-ph="search.placeholder" autocomplete="off">
+      </div>
+      <div class="tabs">
+        <button class="active" data-entity="song" data-i18n="search.tab.song">Songs</button>
+        <button data-entity="album" data-i18n="search.tab.album">Alben</button>
+        <button data-entity="musicArtist" data-i18n="search.tab.artist">Künstler</button>
+      </div>
+    </section>
+
+    <p class="hint" id="empty-msg" style="display:none" data-i18n="search.empty"></p>
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const q = document.getElementById("q");
+      const grid = document.getElementById("grid");
+      const emptyMsg = document.getElementById("empty-msg");
+      let entity = "song";
+      let debounce = null;
+      let audio = null;
+      let playingTile = null;
+
+      document.querySelectorAll(".tabs button").forEach((b) => {
+        b.addEventListener("click", () => {
+          document.querySelectorAll(".tabs button").forEach(
+            (x) => x.classList.remove("active"));
+          b.classList.add("active");
+          entity = b.dataset.entity;
+          run();
+        });
+      });
+
+      q.addEventListener("input", () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(run, 350);
+      });
+
+      function stopPreview() {
+        if (audio) { audio.pause(); audio = null; }
+        if (playingTile) { playingTile.classList.remove("playing"); playingTile = null; }
+      }
+
+      function preview(tile, url) {
+        if (playingTile === tile) return stopPreview();
+        stopPreview();
+        if (!url) return;
+        audio = new Audio(url);
+        audio.play().catch(() => {});
+        audio.addEventListener("ended", stopPreview);
+        playingTile = tile;
+        tile.classList.add("playing");
+      }
+
+      async function run() {
+        const term = q.value.trim();
+        grid.innerHTML = "";
+        emptyMsg.style.display = "none";
+        stopPreview();
+        if (!term) return;
+        let data;
+        try {
+          data = await NS.api(`/api/search?q=${encodeURIComponent(term)}&entity=${entity}`);
+        } catch (e) { return; }
+        const results = data.results || [];
+        emptyMsg.style.display = results.length ? "none" : "block";
+
+        results.forEach((r) => {
+          const tile = document.createElement("div");
+          tile.className = "tile";
+
+          if (r.artwork) {
+            const img = document.createElement("img");
+            img.className = "art";
+            img.src = r.artwork;
+            img.loading = "lazy";
+            img.alt = "";
+            if (r.preview) img.addEventListener("click", () => preview(tile, r.preview));
+            tile.appendChild(img);
+          } else {
+            const ph = document.createElement("div");
+            ph.className = "art noimg";
+            ph.textContent = "♪";
+            tile.appendChild(ph);
+          }
+
+          const info = document.createElement("div");
+          info.className = "info";
+          const b = document.createElement("b");
+          b.textContent = r.title;
+          info.appendChild(b);
+          const small = document.createElement("small");
+          small.textContent = r.kind === "album"
+            ? `${r.artist}${r.track_count ? " · " + r.track_count + " Tracks" : ""}`
+            : (r.kind === "artist" ? (r.genre || "") : r.artist);
+          info.appendChild(small);
+
+          if (r.kind === "track" || r.kind === "album") {
+            const dl = document.createElement("div");
+            dl.className = "dl";
+            const btn = document.createElement("button");
+            btn.textContent = NS.t("search.download");
+            btn.addEventListener("click", async () => {
+              btn.disabled = true;
+              btn.textContent = NS.t("search.downloading");
+              try {
+                if (r.kind === "album") {
+                  await NS.api("/api/download-album",
+                    { method: "POST", body: { itunes_album_id: r.id } });
+                } else {
+                  await NS.api("/api/download-from-query",
+                    { method: "POST", body: { query: r.query } });
+                }
+                location.href = "/";  // the index page restores the live log
+              } catch (e) {
+                btn.disabled = false;
+                btn.textContent = NS.t("search.download");
+              }
+            });
+            dl.appendChild(btn);
+            info.appendChild(dl);
+          }
+          tile.appendChild(info);
+          grid.appendChild(tile);
+        });
+      }
+
+      q.focus();
+    });
+  </script>
+</body>
+</html>

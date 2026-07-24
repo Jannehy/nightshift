@@ -1,0 +1,9 @@
+flask>=3.0
+pyyaml>=6.0
+requests>=2.31
+apscheduler>=3.10
+spotdl>=4.2
+yt-dlp>=2025.1.1
+beets>=2.0
+waitress>=3.0
+tzdata>=2024.1

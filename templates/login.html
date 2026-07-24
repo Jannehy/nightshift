@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <title>Nightshift · Login</title>
+  {% include "_head.html" %}
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="brand"><span class="dot"></span>Nightshift</div>
+      <p class="tagline" data-i18n="app.tagline"></p>
+      <div class="field">
+        <label for="username" data-i18n="login.username">Benutzername</label>
+        <input type="text" id="username" autocomplete="username" autofocus>
+      </div>
+      <div class="field">
+        <label for="password" data-i18n="login.password">Passwort</label>
+        <input type="password" id="password" autocomplete="current-password">
+      </div>
+      <button class="primary" id="login-btn" style="width:100%" data-i18n="login.submit">Anmelden</button>
+      <p class="error-msg" id="login-error" style="display:none"></p>
+    </div>
+  </div>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const doLogin = async () => {
+        const err = document.getElementById("login-error");
+        err.style.display = "none";
+        try {
+          await NS.api("/api/login", {
+            method: "POST",
+            body: {
+              username: document.getElementById("username").value,
+              password: document.getElementById("password").value,
+            },
+          });
+          location.href = "/";
+        } catch (e) {
+          err.textContent = e.message;
+          err.style.display = "block";
+        }
+      };
+      document.getElementById("login-btn").addEventListener("click", doLogin);
+      document.getElementById("password").addEventListener("keydown",
+        (e) => { if (e.key === "Enter") doLogin(); });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.git/
+.gitignore
+config/config.yaml
+config/users.json
+config/cookies/
+docs/
+*.log
+.DS_Store

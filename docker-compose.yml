@@ -1,0 +1,17 @@
+services:
+  nightshift:
+    build: .
+    # After release: image: ghcr.io/jannehy/nightshift:latest
+    container_name: nightshift
+    ports:
+      - "8765:8765"
+    volumes:
+      # Persistent data: config.yaml, cookies, sync registry, logs, beets DB
+      - ./config:/config
+      # Music library – adjust the path to your system
+      - /pfad/zur/musik:/music
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    restart: unless-stopped

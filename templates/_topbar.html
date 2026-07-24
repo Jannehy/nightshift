@@ -1,0 +1,43 @@
+<header class="topbar">
+  <span class="brand"><span class="dot"></span>Nightshift</span>
+  <nav class="nav">
+    <a href="/" data-i18n="nav.download" class="{{ 'active' if active == 'download' }}">Download</a>
+    <a href="/search" data-i18n="nav.search" class="{{ 'active' if active == 'search' }}">Suche</a>
+    <a href="/sync" data-i18n="nav.sync" class="{{ 'active' if active == 'sync' }}">Sync</a>
+    <a href="/settings" id="nav-settings" data-i18n="nav.settings" class="{{ 'active' if active == 'settings' }}" style="display:none">Einstellungen</a>
+  </nav>
+  <span class="spacer"></span>
+  <select id="lang-select" class="lang-select" aria-label="Language">
+    <option value="de">Deutsch</option>
+    <option value="en">English</option>
+    <option value="es">Español</option>
+    <option value="fr">Français</option>
+    <option value="pl">Polski</option>
+    <option value="ru">Русский</option>
+    <option value="ja">日本語</option>
+  </select>
+  <button id="shift-toggle" class="shift-toggle" data-i18n-title="theme.toggle" aria-label="Toggle theme">
+    <svg class="moon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+    </svg>
+    <svg class="sun" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+    </svg>
+  </button>
+  <span class="user-chip">
+    <span id="user-name">…</span>
+    <button id="logout-btn" data-i18n="nav.logout">Abmelden</button>
+  </span>
+</header>
+<script>
+  document.addEventListener("DOMContentLoaded", async () => {
+    try {
+      const me = await NS.api("/api/me");
+      document.getElementById("user-name").textContent = me.user.username;
+      if (me.is_admin) document.getElementById("nav-settings").style.display = "";
+      window.NS_ME = me;
+      document.dispatchEvent(new CustomEvent("ns:me", { detail: me }));
+    } catch (e) { location.href = "/login"; }
+  });
+</script>

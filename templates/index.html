@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <title>Nightshift</title>
+  {% include "_head.html" %}
+  <style>
+    .input-row { display: flex; gap: 0.6rem; }
+    .input-row input { flex: 1; }
+    @media (max-width: 680px) {
+      .input-row { flex-direction: column; }
+      .input-row button { width: 100%; }
+    }
+    .sources { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
+    .source-pill {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; padding: 0.25rem 0.7rem;
+      border-radius: 999px; border: 1px solid var(--line);
+      color: var(--ink-faint); opacity: 0.55; transition: all 0.2s;
+    }
+    .source-pill.active { opacity: 1; }
+    .source-pill.active.spotify    { color: #1db954; border-color: #1db954; }
+    .source-pill.active.soundcloud { color: var(--accent); border-color: var(--accent); }
+    .source-pill.active.youtube    { color: var(--err); border-color: var(--err); }
+    #owner-row, #sync-row { margin-top: 1.1rem; display: none; }
+    .nightly-row { display: flex; align-items: center; gap: 1rem; }
+    .nightly-row p { flex: 1; color: var(--ink-dim); font-size: 0.88rem; }
+    .schedule-chip {
+      font-family: "JetBrains Mono", monospace; font-size: 0.72rem;
+      color: var(--accent); border: 1px solid var(--line);
+      border-radius: 6px; padding: 0.15rem 0.5rem; white-space: nowrap;
+    }
+    .bar i.indet {
+      width: 35% !important;
+      animation: ns-indet 1.6s ease-in-out infinite;
+    }
+    @keyframes ns-indet {
+      0% { margin-left: 0; } 50% { margin-left: 65%; } 100% { margin-left: 0; }
+    }
+    #progress-card { display: none; }
+    #progress-card.active { display: block; }
+    #log-card { display: none; }
+  </style>
+</head>
+<body>
+  {% include "_topbar.html" %}
+  <main class="container">
+    <h1 class="page-title" data-i18n="download.title">Download</h1>
+    <p class="page-sub" data-i18n="app.tagline"></p>
+
+    <!-- Download card -->
+    <section class="card">
+      <div class="input-row">
+        <input type="text" id="url" data-i18n-ph="download.placeholder"
+               placeholder="Spotify-, SoundCloud- oder YouTube-Link …" autocomplete="off">
+        <button class="primary" id="submit" data-i18n="download.submit">Herunterladen</button>
+      </div>
+      <div class="sources">
+        <span class="source-pill spotify" id="pill-spotify">Spotify</span>
+        <span class="source-pill soundcloud" id="pill-soundcloud">SoundCloud</span>
+        <span class="source-pill youtube" id="pill-youtube">YouTube</span>
+      </div>
+      <div class="field" id="owner-row">
+        <label for="owner" data-i18n="download.owner">Playlist-Besitzer</label>
+        <select id="owner">
+          <option value="__none__" disabled selected data-i18n="download.owner.choose">Bitte wählen …</option>
+          <option value="" data-i18n="download.owner.public">Öffentlich (für alle sichtbar)</option>
+        </select>
+      </div>
+      <div id="sync-row">
+        <label class="check">
+          <input type="checkbox" id="sync-check">
+          <span data-i18n="download.sync">Als Sync-Playlist (wird nachts aktualisiert)</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Nightly card -->
+    <section class="card">
+      <h2 data-i18n="nightly.title">Nightly-Sync</h2>
+      <div class="nightly-row">
+        <p data-i18n="nightly.desc">Synchronisiert alle Sync-Playlists automatisch.</p>
+        <span class="schedule-chip" id="schedule-chip" style="display:none"></span>
+        <button class="primary" id="nightly-btn" data-i18n="nightly.start">Jetzt starten</button>
+      </div>
+    </section>
+
+    <!-- Progress -->
+    <section class="card progress-wrap" id="progress-card">
+      <div class="progress-head">
+        <span id="status-text">…</span>
+        <span class="progress-pct" id="status-count">0%</span>
+      </div>
+      <div class="bar"><i id="bar"></i></div>
+    </section>
+
+    <!-- Console -->
+    <section class="console" id="log-card">
+      <div class="console-head">
+        <span data-i18n="console.title">Konsole</span>
+        <span id="log-count">0</span>
+      </div>
+      <div class="console-body" id="log"></div>
+    </section>
+  </main>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const $ = (id) => document.getElementById(id);
+      const urlInput = $("url"), submitBtn = $("submit");
+      const card = $("progress-card"), logCard = $("log-card"), log = $("log");
+      const bar = $("bar"), statusText = $("status-text"), statusCount = $("status-count");
+      const nightlyBtn = $("nightly-btn");
+      let lineCount = 0;
+      let me = null;
+
+      // ---- Context (role, sync feature, Navidrome, schedule) ----
+      document.addEventListener("ns:me", (e) => {
+        me = e.detail;
+        const m = /^(\d+)\s+(\d+)\b/.exec(me.nightly_schedule || "");
+        if (m) {
+          $("schedule-chip").textContent =
+            `${m[2].padStart(2, "0")}:${m[1].padStart(2, "0")}`;
+          $("schedule-chip").style.display = "";
+        }
+        refreshGates();
+      });
+      if (window.NS_ME) document.dispatchEvent(
+        new CustomEvent("ns:me", { detail: window.NS_ME }));
+
+      // ---- Source detection + gates ----
+      const sourceRules = [
+        { re: /spotify\.com/i, pill: "pill-spotify" },
+        { re: /soundcloud\.com/i, pill: "pill-soundcloud" },
+        { re: /youtube\.com|youtu\.be/i, pill: "pill-youtube" },
+      ];
+      function isPlaylistUrl(v) {
+        return /playlist/i.test(v)
+            || /\/sets\//i.test(v)
+            || /[?&]list=/i.test(v)
+            || /on\.soundcloud\.com/i.test(v); // Short link: target unknown → ask to be safe
+      }
+      function refreshGates() {
+        const v = urlInput.value;
+        const isPl = isPlaylistUrl(v);
+        const ndOn = !!(me && me.navidrome_enabled);
+        const syncOn = !!(me && me.sync_enabled);
+        $("owner-row").style.display = (isPl && ndOn) ? "block" : "none";
+        $("sync-row").style.display = (isPl && syncOn) ? "block" : "none";
+        submitBtn.disabled = isPl && ndOn && $("owner").value === "__none__";
+      }
+      function updateSourcePills() {
+        document.querySelectorAll(".source-pill").forEach(
+          (p) => p.classList.remove("active"));
+        for (const s of sourceRules) {
+          if (s.re.test(urlInput.value)) { $(s.pill).classList.add("active"); break; }
+        }
+        refreshGates();
+      }
+      urlInput.addEventListener("input", updateSourcePills);
+      $("owner").addEventListener("change", refreshGates);
+
+      // ---- Console ----
+      function classify(line) {
+        if (/✓|DONE|FERTIG/.test(line)) return "ok";
+        if (/✗|⚠|FAILED|FEHLER|Error/i.test(line)) return "err";
+        return "";
+      }
+      function addLog(line) {
+        const el = document.createElement("div");
+        el.className = classify(line);
+        el.textContent = line;
+        log.appendChild(el);
+        log.scrollTop = log.scrollHeight;
+        $("log-count").textContent = ++lineCount;
+      }
+      let statusKey = null, statusN = null;
+      function renderStatus() {
+        if (statusKey) {
+          statusText.textContent =
+            NS.t(statusKey).replace("{n}", statusN ?? "");
+        }
+      }
+      document.addEventListener("ns:lang", renderStatus);
+      function setProgress(pct, key, n) {
+        if (pct === null) {
+          bar.classList.add("indet");
+          statusCount.textContent = "…";
+        } else {
+          bar.classList.remove("indet");
+          bar.style.width = pct + "%";
+          statusCount.textContent = pct + "%";
+        }
+        if (key) { statusKey = key; statusN = n ?? null; renderStatus(); }
+      }
+      function reset() {
+        log.innerHTML = ""; lineCount = 0;
+        card.classList.remove("done", "err");
+        statusKey = null; statusN = null;
+        bar.classList.remove("indet");
+        bar.style.width = "0%";
+        statusCount.textContent = "0%";
+        statusText.textContent = "…";
+      }
+      function setBusy(b) {
+        submitBtn.disabled = b; urlInput.disabled = b;
+        nightlyBtn.disabled = b;
+      }
+      function showPanels() {
+        card.classList.add("active");
+        logCard.style.display = "block";
+      }
+
+      // ---- Real progress parsed from the log ----
+      function progressFromLog(text) {
+        let total = 0;
+        let m = text.match(/\((\d+) tracks\)/);      // SC/YT set probe
+        if (m) total = parseInt(m[1], 10);
+        m = text.match(/(\d+) tracks found/);          // spotDL
+        if (m) total = Math.max(total, parseInt(m[1], 10));
+        const done = (text.match(/^✓ /gm) || []).length
+                   + (text.match(/^(Downloaded|Skipping) /gm) || []).length;
+        return { total, done };
+      }
+
+      // ---- Generic log polling (download + nightly) ----
+      let pollTimer = null, lastLen = 0;
+      function poll(endpoint, onDone) {
+        if (pollTimer) return;
+        pollTimer = setInterval(async () => {
+          try {
+            const data = await NS.api(endpoint);
+            if (data.log.length < lastLen) {
+              // the worker started a new job and rewrote the log file
+              log.innerHTML = ""; lineCount = 0;
+              $("log-count").textContent = 0;
+              lastLen = 0;
+            }
+            if (data.log.length > lastLen) {
+              data.log.slice(lastLen).split("\n")
+                .filter((l) => l.trim()).forEach(addLog);
+              lastLen = data.log.length;
+            }
+            if (data.running) {
+              const pr = progressFromLog(data.log);
+              if (pr.total > 0) {
+                setProgress(Math.min(95,
+                  5 + Math.round((pr.done / pr.total) * 90)));
+              } else {
+                setProgress(null);
+              }
+            }
+            if (!data.running) {
+              clearInterval(pollTimer); pollTimer = null;
+              onDone(data);
+            }
+          } catch (e) { /* next tick */ }
+        }, 2000);
+      }
+      function finishState(data) {
+        if (data.finished) {
+          card.classList.add("done");
+          setProgress(100, "common.done");
+        } else if (data.failed) {
+          card.classList.add("err");
+          setProgress(100, "common.error");
+        }
+        setBusy(false);
+        nightlyBtn.textContent = NS.t("nightly.start");
+      }
+
+      // ---- Queue phase: wait until our job leaves the pending list ----
+      let queueTimer = null;
+      function waitForTurn(jobId, endpoint, onDone) {
+        if (queueTimer) { clearInterval(queueTimer); queueTimer = null; }
+        const check = async () => {
+          try {
+            const qd = await NS.api("/api/queue");
+            const idx = (qd.pending || []).findIndex((t) => t.job_id === jobId);
+            if (idx >= 0) {
+              setProgress(2, "download.queued", idx + 1);
+              return;
+            }
+            clearInterval(queueTimer); queueTimer = null;
+            setProgress(null, "nightly.running");
+            poll(endpoint, onDone);
+          } catch (e) { /* next tick */ }
+        };
+        queueTimer = setInterval(check, 2000);
+        check();
+      }
+
+      // ---- Download ----
+      async function startDownload() {
+        const url = urlInput.value.trim();
+        if (!url) return;
+        reset(); showPanels(); setBusy(true); lastLen = 0;
+        setProgress(3, "nightly.running");
+        let res;
+        try {
+          res = await NS.api("/download", { method: "POST", body: {
+            url,
+            owner_id: ($("owner").value && $("owner").value !== "__none__")
+              ? $("owner").value : null,
+            sync: $("sync-check").checked,
+          }});
+        } catch (e) {
+          addLog("✗ " + e.message);
+          card.classList.add("err"); setBusy(false);
+          return;
+        }
+        if (res.position > 0) {
+          setProgress(2, "download.queued", res.position);
+        } else {
+          setProgress(null, "nightly.running");
+        }
+        waitForTurn(res.job_id, "/download-log", finishState);
+      }
+      submitBtn.addEventListener("click", startDownload);
+      urlInput.addEventListener("keydown",
+        (e) => { if (e.key === "Enter" && !submitBtn.disabled) startDownload(); });
+
+      // ---- Nightly ----
+      nightlyBtn.addEventListener("click", async () => {
+        reset(); showPanels(); setBusy(true); lastLen = 0;
+        nightlyBtn.textContent = NS.t("nightly.running");
+        let res;
+        try {
+          res = await NS.api("/nightly", { method: "POST" });
+        } catch (e) {
+          addLog("✗ " + e.message);
+          card.classList.add("err"); setBusy(false);
+          nightlyBtn.textContent = NS.t("nightly.start");
+          return;
+        }
+        if (res.position > 0) {
+          setProgress(2, "download.queued", res.position);
+        } else {
+          setProgress(null, "nightly.running");
+        }
+        waitForTurn(res.job_id, "/nightly-log", finishState);
+      });
+
+      // ---- Reload restore ----
+      function restore(data, endpoint, busyExtra) {
+        reset(); showPanels();
+        data.log.split("\n").filter((l) => l.trim()).forEach(addLog);
+        lastLen = data.log.length;
+        if (data.running) {
+          setBusy(true);
+          if (busyExtra) busyExtra();
+          setProgress(null, "nightly.running");
+          poll(endpoint, finishState);
+        } else if (data.finished) {
+          card.classList.add("done"); setProgress(100, "common.done");
+        } else if (data.failed) {
+          card.classList.add("err"); setProgress(100, "common.error");
+        }
+      }
+      (async () => {
+        try {
+          const dl = await NS.api("/download-log");
+          const ni = await NS.api("/nightly-log");
+          if (dl.running) return restore(dl, "/download-log");
+          if (ni.running) return restore(ni, "/nightly-log",
+            () => { nightlyBtn.textContent = NS.t("nightly.running"); });
+          const dlHas = dl.log && dl.log.length, niHas = ni.log && ni.log.length;
+          if (dlHas && niHas) {
+            ((dl.mtime || 0) >= (ni.mtime || 0))
+              ? restore(dl, "/download-log")
+              : restore(ni, "/nightly-log");
+          } else if (dlHas) restore(dl, "/download-log");
+          else if (niHas) restore(ni, "/nightly-log");
+        } catch (e) { /* empty state */ }
+      })();
+
+      // ---- Load Navidrome owners ----
+      (async () => {
+        try {
+          const data = await NS.api("/nd-users");
+          (data.users || []).forEach((u) => {
+            const opt = document.createElement("option");
+            opt.value = u.id;
+            opt.textContent = u.name || u.userName;
+            $("owner").appendChild(opt);
+          });
+        } catch (e) { /* Navidrome disabled */ }
+      })();
+
+      urlInput.focus();
+    });
+  </script>
+</body>
+</html>

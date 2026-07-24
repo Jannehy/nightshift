@@ -1,0 +1,14 @@
+# Runtime data – never commit
+config/*
+!config/config.example.yaml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Misc
+*.log
+.env
+.DS_Store

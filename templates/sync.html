@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <title>Nightshift · Sync</title>
+  {% include "_head.html" %}
+</head>
+<body>
+  {% include "_topbar.html" %}
+  <main class="container">
+    <h1 class="page-title" data-i18n="sync.title">Sync-Playlists</h1>
+    <p class="page-sub" data-i18n="nightly.desc">Synchronisiert alle Sync-Playlists automatisch.</p>
+
+    <section class="card">
+      <div id="sync-list"></div>
+      <p id="sync-empty" style="display:none" class="hint" data-i18n="sync.empty"></p>
+      <p class="error-msg" id="sync-error" style="display:none"></p>
+    </section>
+  </main>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const list = document.getElementById("sync-list");
+      const empty = document.getElementById("sync-empty");
+      const err = document.getElementById("sync-error");
+      let isAdmin = false;
+
+      function badgeFor(source) {
+        return { spotify: "spotify", soundcloud: "soundcloud", youtube: "youtube" }[source] || "";
+      }
+
+      async function load() {
+        list.innerHTML = "";
+        err.style.display = "none";
+        try {
+          const data = await NS.api("/api/sync-playlists");
+          const entries = data.entries || [];
+          empty.style.display = entries.length ? "none" : "block";
+          entries.forEach((e) => {
+            const row = document.createElement("div");
+            row.className = "list-item";
+
+            const meta = document.createElement("div");
+            meta.className = "meta";
+            const name = document.createElement("b");
+            name.textContent = e.name || "(unnamed)";
+            const url = document.createElement("small");
+            url.textContent = e.url || (e.file ? e.file : "");
+            meta.appendChild(name); meta.appendChild(url);
+            const ownerLine = document.createElement("small");
+            ownerLine.style.display = "block";
+            ownerLine.textContent =
+              (e.owner ? "👤 " + e.owner : NS.t("sync.noowner")) + " · " +
+              NS.t(e.public ? "sync.public" : "sync.private");
+            meta.appendChild(ownerLine);
+
+            const right = document.createElement("div");
+            right.style.display = "flex";
+            right.style.alignItems = "center";
+            right.style.gap = "0.6rem";
+            const badge = document.createElement("span");
+            badge.className = "badge " + badgeFor(e.source);
+            badge.textContent = e.source;
+            right.appendChild(badge);
+
+            if (isAdmin) {
+              const edit = document.createElement("button");
+              edit.className = "ghost";
+              edit.style.padding = "0.35rem 0.8rem";
+              edit.textContent = NS.t("sync.edit");
+              edit.addEventListener("click", () => toggleEditor(row, e));
+              right.appendChild(edit);
+            }
+            if (e.can_remove) {
+              const rm = document.createElement("button");
+              rm.className = "ghost";
+              rm.style.padding = "0.35rem 0.8rem";
+              rm.textContent = NS.t("sync.remove");
+              rm.addEventListener("click", async () => {
+                const q = NS.t("sync.remove.confirm")
+                  .replace("{name}", e.name || e.url || "");
+                if (!confirm(q)) return;
+                rm.disabled = true;
+                try {
+                  await NS.api("/api/sync-playlists",
+                    { method: "DELETE", body: { url: e.url, file: e.file } });
+                  load();
+                } catch (ex) {
+                  rm.disabled = false;
+                  err.textContent = ex.message;
+                  err.style.display = "block";
+                }
+              });
+              right.appendChild(rm);
+            }
+            row.appendChild(meta); row.appendChild(right);
+            list.appendChild(row);
+          });
+        } catch (ex) {
+          err.textContent = ex.message;
+          err.style.display = "block";
+        }
+      }
+
+      let userList = null;
+      async function loadUserList() {
+        if (userList) return userList;
+        try {
+          const d = await NS.api("/api/users");
+          userList = (d.users || []).map((u) => u.username);
+        } catch (ex) { userList = []; }
+        return userList;
+      }
+
+      async function toggleEditor(row, entry) {
+        const existing = row.nextElementSibling;
+        if (existing && existing.classList.contains("sync-editor")) {
+          existing.remove();
+          return;
+        }
+        document.querySelectorAll(".sync-editor").forEach((el) => el.remove());
+        const users = await loadUserList();
+
+        const ed = document.createElement("div");
+        ed.className = "sync-editor";
+        ed.style.cssText =
+          "display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;" +
+          "padding:0.6rem 0 0.9rem;border-bottom:1px solid var(--line)";
+
+        const sel = document.createElement("select");
+        sel.style.maxWidth = "180px";
+        const none = document.createElement("option");
+        none.value = ""; none.textContent = NS.t("sync.noowner");
+        sel.appendChild(none);
+        users.forEach((u) => {
+          const o = document.createElement("option");
+          o.value = u; o.textContent = u;
+          sel.appendChild(o);
+        });
+        sel.value = entry.owner || "";
+
+        const lab = document.createElement("label");
+        lab.className = "check";
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.checked = !!entry.public;
+        const sp = document.createElement("span");
+        sp.textContent = NS.t("sync.public");
+        lab.appendChild(cb); lab.appendChild(sp);
+
+        const save = document.createElement("button");
+        save.className = "primary";
+        save.style.padding = "0.45rem 1rem";
+        save.textContent = NS.t("settings.save");
+        save.addEventListener("click", async () => {
+          save.disabled = true;
+          try {
+            await NS.api("/api/sync-playlists", { method: "PATCH", body: {
+              url: entry.url, file: entry.file,
+              owner: sel.value, public: cb.checked,
+            }});
+            load();
+          } catch (ex) {
+            save.disabled = false;
+            err.textContent = ex.message;
+            err.style.display = "block";
+          }
+        });
+
+        ed.appendChild(sel); ed.appendChild(lab); ed.appendChild(save);
+        row.after(ed);
+      }
+
+      document.addEventListener("ns:me", (e) => {
+        isAdmin = !!e.detail.is_admin;
+        load();
+      });
+      if (window.NS_ME) {
+        isAdmin = !!window.NS_ME.is_admin;
+        load();
+      }
+    });
+  </script>
+</body>
+</html>

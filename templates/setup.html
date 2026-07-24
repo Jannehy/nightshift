@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <title>Nightshift · Setup</title>
+  {% include "_head.html" %}
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card setup-card">
+      <div class="brand"><span class="dot"></span>Nightshift</div>
+      <p class="tagline" data-i18n="setup.intro"></p>
+
+      <div class="steps">
+        <span id="s1" class="active" data-i18n="setup.step.admin">Admin-Konto</span>
+        <span id="s2" data-i18n="setup.step.library">Bibliothek</span>
+        <span id="s3" data-i18n="setup.step.options">Optionen</span>
+      </div>
+
+      <div class="step-panel active" id="p1">
+        <div class="field">
+          <label for="admin-user" data-i18n="login.username">Benutzername</label>
+          <input type="text" id="admin-user" autocomplete="username">
+          <p class="hint" data-i18n="setup.admin.hint"></p>
+        </div>
+        <div class="field">
+          <label for="admin-pass" data-i18n="login.password">Passwort</label>
+          <input type="password" id="admin-pass" autocomplete="new-password">
+        </div>
+      </div>
+
+      <div class="step-panel" id="p2">
+        <div class="field">
+          <label for="music-root" data-i18n="setup.library.root">Pfad zur Musikbibliothek</label>
+          <input type="text" id="music-root" value="/music">
+          <p class="hint" data-i18n="setup.library.hint"></p>
+          {% if docker %}
+          <p class="hint" style="color:var(--accent)"
+             data-i18n="settings.hint.music_root.docker"></p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="step-panel" id="p3">
+        <div class="field">
+          <label for="cookie-file" data-i18n="setup.cookie">YouTube-Cookie-Datei (optional)</label>
+          <input type="text" id="cookie-file" placeholder="/config/cookies/yt-cookies.txt">
+          <p class="hint" data-i18n="setup.cookie.hint"></p>
+        </div>
+        <div class="field">
+          <label class="check">
+            <input type="checkbox" id="nd-enabled">
+            <span data-i18n="setup.navidrome">Navidrome verbinden (optional)</span>
+          </label>
+        </div>
+        <div id="nd-fields" style="display:none">
+          <div class="field">
+            <label for="nd-url">Navidrome-URL</label>
+            <input type="text" id="nd-url" value="http://localhost:4533">
+          </div>
+          <div class="row">
+            <div class="field">
+              <label for="nd-user">Service-Benutzer</label>
+              <input type="text" id="nd-user">
+            </div>
+            <div class="field">
+              <label for="nd-pass">Passwort</label>
+              <input type="password" id="nd-pass" autocomplete="new-password">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="error-msg" id="setup-error" style="display:none"></p>
+
+      <div class="wizard-nav">
+        <button class="ghost" id="back-btn" style="visibility:hidden" data-i18n="setup.back">Zurück</button>
+        <button class="primary" id="next-btn" data-i18n="setup.next">Weiter</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      let step = 1;
+      const panels = [null, document.getElementById("p1"), document.getElementById("p2"), document.getElementById("p3")];
+      const dots = [null, document.getElementById("s1"), document.getElementById("s2"), document.getElementById("s3")];
+      const backBtn = document.getElementById("back-btn");
+      const nextBtn = document.getElementById("next-btn");
+      const err = document.getElementById("setup-error");
+
+      document.getElementById("nd-enabled").addEventListener("change", (e) => {
+        document.getElementById("nd-fields").style.display = e.target.checked ? "" : "none";
+      });
+
+      function show(n) {
+        step = n;
+        panels.forEach((p, i) => p && p.classList.toggle("active", i === n));
+        dots.forEach((d, i) => {
+          if (!d) return;
+          d.classList.toggle("active", i === n);
+          d.classList.toggle("done", i < n);
+        });
+        backBtn.style.visibility = n === 1 ? "hidden" : "visible";
+        nextBtn.textContent = n === 3 ? NS.t("setup.finish") : NS.t("setup.next");
+        err.style.display = "none";
+      }
+
+      function fail(msg) {
+        err.textContent = msg;
+        err.style.display = "block";
+      }
+
+      backBtn.addEventListener("click", () => show(step - 1));
+
+      nextBtn.addEventListener("click", async () => {
+        if (step === 1) {
+          const u = document.getElementById("admin-user").value.trim();
+          const p = document.getElementById("admin-pass").value;
+          if (!u || p.length < 4) return fail(
+            NS.lang === "de" ? "Benutzername und Passwort (mind. 4 Zeichen) nötig"
+                             : "Username and password (min. 4 chars) required");
+          return show(2);
+        }
+        if (step === 2) {
+          if (!document.getElementById("music-root").value.trim())
+            return fail(NS.t("setup.library.root"));
+          return show(3);
+        }
+        nextBtn.disabled = true;
+        const ndOn = document.getElementById("nd-enabled").checked;
+        const payload = {
+          username: document.getElementById("admin-user").value.trim(),
+          password: document.getElementById("admin-pass").value,
+          config: {
+            server: { language: NS.lang },
+            library: { music_root: document.getElementById("music-root").value.trim() },
+            downloads: {
+              youtube_cookie_file: document.getElementById("cookie-file").value.trim(),
+            },
+            navidrome: {
+              enabled: ndOn,
+              url: document.getElementById("nd-url").value.trim(),
+              username: document.getElementById("nd-user").value.trim(),
+              password: document.getElementById("nd-pass").value,
+            },
+          },
+        };
+        try {
+          await NS.api("/api/setup", { method: "POST", body: payload });
+          location.href = "/";
+        } catch (e) {
+          nextBtn.disabled = false;
+          fail(e.message);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

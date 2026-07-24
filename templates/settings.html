@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <title>Nightshift · Einstellungen</title>
+  {% include "_head.html" %}
+  <style>
+    .save-bar {
+      position: sticky; bottom: 0; z-index: 40;
+      display: flex; align-items: center; gap: 1rem;
+      padding: 0.9rem 0; margin-top: 1rem;
+      background: color-mix(in srgb, var(--bg) 88%, transparent);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid var(--line);
+    }
+    .user-form { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+    .user-form input, .user-form select { flex: 1; min-width: 130px; }
+    .role-tag { font-size: 0.7rem; }
+  </style>
+</head>
+<body>
+  {% include "_topbar.html" %}
+  <main class="container">
+    <h1 class="page-title" data-i18n="settings.title">Einstellungen</h1>
+    <p class="page-sub" data-i18n="app.tagline"></p>
+
+    <div id="config-sections"></div>
+
+    <div class="save-bar">
+      <button class="primary" id="save-btn" data-i18n="settings.save">Speichern</button>
+      <span class="ok-msg" id="save-ok" style="display:none" data-i18n="settings.saved">Gespeichert</span>
+      <span class="error-msg" id="save-err" style="display:none"></span>
+      <span style="flex:1"></span>
+      <button class="ghost" id="reset-btn" style="color:var(--err)" data-i18n="settings.reset">Auf Standard zurücksetzen</button>
+    </div>
+
+    <!-- User management -->
+    <section class="card" style="margin-top:1.5rem">
+      <h2 data-i18n="settings.users">Benutzer</h2>
+      <div id="user-list"></div>
+      <div class="user-form">
+        <input type="text" id="nu-name" data-i18n-ph="settings.users.name" autocomplete="off">
+        <input type="password" id="nu-pass" data-i18n-ph="settings.users.password" autocomplete="new-password">
+        <select id="nu-role">
+          <option value="user" data-i18n="settings.users.role.user">Benutzer</option>
+          <option value="admin" data-i18n="settings.users.role.admin">Administrator</option>
+        </select>
+        <button class="ghost" id="nu-add" data-i18n="settings.users.add">Benutzer anlegen</button>
+      </div>
+      <p class="error-msg" id="user-err" style="display:none"></p>
+    </section>
+  </main>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const wrap = document.getElementById("config-sections");
+      let config = null;
+
+      // Data-driven form: [section, key, type, i18n label, options/hint]
+      const SECTIONS = [
+        ["server", "settings.section.server", [
+          ["language", "select", "settings.field.language", ["de", "en", "es", "fr", "pl", "ru", "ja"]],
+          ["theme", "select", "settings.field.theme", ["auto", "dark", "light"]],
+          ["port", "number", "settings.field.port"],
+        ]],
+        ["library", "settings.section.library", [
+          ["music_root", "text", "settings.field.music_root", null,
+           null, "docker:settings.hint.music_root.docker"],
+          ["spotify_dir", "text", "settings.field.spotify_dir"],
+          ["spotify_output_template", "text", "settings.field.spotify_output_template"],
+          ["soundcloud_dir", "text", "settings.field.soundcloud_dir"],
+          ["youtube_dir", "text", "settings.field.youtube_dir"],
+        ]],
+        ["downloads", "settings.section.downloads", [
+          ["youtube_cookie_file", "text", "settings.field.youtube_cookie_file", null,
+           null, "docker:settings.hint.path.docker"],
+          ["soundcloud_cookie_file", "text", "settings.field.soundcloud_cookie_file", null,
+           null, "docker:settings.hint.path.docker"],
+          ["spotify_format", "select", "settings.field.spotify_format", ["mp3", "m4a", "opus", "flac"]],
+          ["spotify_bitrate", "text", "settings.field.spotify_bitrate"],
+          ["spotify_threads", "number", "settings.field.spotify_threads"],
+        ]],
+        ["nightly", "settings.section.nightly", [
+          ["schedule", "text", "settings.field.schedule", null, "settings.field.schedule.hint"],
+          ["sync_timeout_seconds", "number", "settings.field.sync_timeout_seconds"],
+          ["max_attempts", "number", "settings.field.max_attempts"],
+          ["fetch_lyrics", "check", "settings.field.fetch_lyrics"],
+        ]],
+        ["sync", "settings.section.sync", [
+          ["enabled", "check", "settings.field.sync_enabled"],
+        ]],
+        ["beets", "settings.section.beets", [
+          ["enabled", "check", "settings.field.beets_enabled"],
+          ["config_file", "text", "settings.field.beets_config"],
+        ]],
+        ["navidrome", "settings.section.navidrome", [
+          ["enabled", "check", "settings.field.nd_enabled"],
+          ["url", "text", "settings.field.nd_url"],
+          ["username", "text", "settings.field.nd_username"],
+          ["password", "password", "settings.field.nd_password"],
+          ["default_public", "check", "settings.field.nd_default_public"],
+        ]],
+      ];
+
+      const fid = (s, k) => `cfg-${s}-${k}`;
+
+      function build() {
+        wrap.innerHTML = "";
+        SECTIONS.forEach(([sec, secI18n, fields]) => {
+          const card = document.createElement("section");
+          card.className = "card";
+          const h = document.createElement("h2");
+          h.dataset.i18n = secI18n;
+          card.appendChild(h);
+
+          fields.forEach(([key, type, labelI18n, options, hintI18n, envHint]) => {
+            const val = (config[sec] || {})[key];
+            const field = document.createElement("div");
+            field.className = "field";
+
+            if (type === "check") {
+              const lab = document.createElement("label");
+              lab.className = "check";
+              const inp = document.createElement("input");
+              inp.type = "checkbox";
+              inp.id = fid(sec, key);
+              inp.checked = !!val;
+              const span = document.createElement("span");
+              span.dataset.i18n = labelI18n;
+              lab.appendChild(inp); lab.appendChild(span);
+              field.appendChild(lab);
+            } else {
+              const lab = document.createElement("label");
+              lab.htmlFor = fid(sec, key);
+              lab.dataset.i18n = labelI18n;
+              field.appendChild(lab);
+              let inp;
+              if (type === "select") {
+                inp = document.createElement("select");
+                (options || []).forEach((o) => {
+                  const opt = document.createElement("option");
+                  opt.value = o; opt.textContent = o;
+                  inp.appendChild(opt);
+                });
+                inp.value = val ?? "";
+              } else {
+                inp = document.createElement("input");
+                inp.type = type;
+                inp.value = val ?? "";
+                if (type === "password" && val === "__SET__") {
+                  inp.placeholder = "••••••• (set)";
+                  inp.value = "__SET__";
+                }
+              }
+              inp.id = fid(sec, key);
+              field.appendChild(inp);
+              if (hintI18n) {
+                const p = document.createElement("p");
+                p.className = "hint";
+                p.dataset.i18n = hintI18n;
+                field.appendChild(p);
+              }
+              // environment-specific hint, e.g. "docker:<i18n key>"
+              if (envHint) {
+                const [envName, key2] = envHint.split(":");
+                if ((config._env || {})[envName]) {
+                  const p = document.createElement("p");
+                  p.className = "hint";
+                  p.style.color = "var(--accent)";
+                  p.dataset.i18n = key2;
+                  field.appendChild(p);
+                }
+              }
+            }
+            card.appendChild(field);
+          });
+          wrap.appendChild(card);
+        });
+        NS.translatePage();
+      }
+
+      async function loadConfig() {
+        config = await NS.api("/api/config");
+        build();
+      }
+
+      document.getElementById("save-btn").addEventListener("click", async () => {
+        const ok = document.getElementById("save-ok");
+        const err = document.getElementById("save-err");
+        ok.style.display = "none"; err.style.display = "none";
+        const updates = {};
+        SECTIONS.forEach(([sec, _l, fields]) => {
+          updates[sec] = {};
+          fields.forEach(([key, type]) => {
+            const el = document.getElementById(fid(sec, key));
+            if (!el) return;
+            if (type === "check") updates[sec][key] = el.checked;
+            else if (type === "number") updates[sec][key] = Number(el.value) || 0;
+            else updates[sec][key] = el.value;
+          });
+        });
+        try {
+          await NS.api("/api/config", { method: "POST", body: updates });
+          ok.style.display = "";
+          setTimeout(() => { ok.style.display = "none"; }, 2500);
+          loadConfig();
+        } catch (e) {
+          err.textContent = e.message;
+          err.style.display = "";
+        }
+      });
+
+      // ---- User management ----
+      const userList = document.getElementById("user-list");
+      const userErr = document.getElementById("user-err");
+
+      async function loadUsers() {
+        userErr.style.display = "none";
+        userList.innerHTML = "";
+        const data = await NS.api("/api/users");
+        (data.users || []).forEach((u) => {
+          const row = document.createElement("div");
+          row.className = "list-item";
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          const b = document.createElement("b");
+          b.textContent = u.username;
+          meta.appendChild(b);
+          row.appendChild(meta);
+
+          const right = document.createElement("div");
+          right.style.display = "flex"; right.style.gap = "0.6rem";
+          right.style.alignItems = "center";
+          const tag = document.createElement("span");
+          tag.className = "badge role-tag";
+          tag.dataset.i18n = u.role === "admin"
+            ? "settings.users.role.admin" : "settings.users.role.user";
+          right.appendChild(tag);
+
+          const pw = document.createElement("button");
+          pw.className = "ghost"; pw.style.padding = "0.3rem 0.7rem";
+          pw.dataset.i18n = "settings.users.changepw";
+          pw.addEventListener("click", async () => {
+            const np = prompt(NS.t("settings.users.newpw"));
+            if (!np) return;
+            try {
+              await NS.api("/api/users/password",
+                { method: "POST", body: { username: u.username, password: np } });
+            } catch (e) {
+              userErr.textContent = e.message; userErr.style.display = "";
+            }
+          });
+          right.appendChild(pw);
+
+          const del = document.createElement("button");
+          del.className = "ghost"; del.style.padding = "0.3rem 0.7rem";
+          del.style.color = "var(--err)";
+          del.dataset.i18n = "settings.users.delete";
+          del.addEventListener("click", async () => {
+            try {
+              await NS.api("/api/users",
+                { method: "DELETE", body: { username: u.username } });
+              loadUsers();
+            } catch (e) {
+              userErr.textContent = e.message; userErr.style.display = "";
+            }
+          });
+          right.appendChild(del);
+          row.appendChild(right);
+          userList.appendChild(row);
+        });
+        NS.translatePage();
+      }
+
+      document.getElementById("nu-add").addEventListener("click", async () => {
+        userErr.style.display = "none";
+        try {
+          await NS.api("/api/users", { method: "POST", body: {
+            username: document.getElementById("nu-name").value,
+            password: document.getElementById("nu-pass").value,
+            role: document.getElementById("nu-role").value,
+          }});
+          document.getElementById("nu-name").value = "";
+          document.getElementById("nu-pass").value = "";
+          loadUsers();
+        } catch (e) {
+          userErr.textContent = e.message; userErr.style.display = "";
+        }
+      });
+
+      document.getElementById("reset-btn").addEventListener("click", async () => {
+        if (!confirm(NS.t("settings.reset.confirm"))) return;
+        const err = document.getElementById("save-err");
+        err.style.display = "none";
+        try {
+          await NS.api("/api/config/reset", { method: "POST" });
+          const ok = document.getElementById("save-ok");
+          ok.style.display = "";
+          setTimeout(() => { ok.style.display = "none"; }, 2500);
+          loadConfig();
+        } catch (e) {
+          err.textContent = e.message;
+          err.style.display = "";
+        }
+      });
+
+      loadConfig().catch(() => {});
+      loadUsers().catch(() => {});
+    });
+  </script>
+</body>
+</html>
