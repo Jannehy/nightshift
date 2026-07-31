@@ -8,6 +8,12 @@ Built to sit next to [Navidrome](https://www.navidrome.org/),
 [Jellyfin](https://jellyfin.org/) or any other media server that reads a plain
 folder of audio files.
 
+## Screenshots
+
+![Download page — night shift](docs/screenshots/dunkel.png)
+
+![Settings — day shift](docs/screenshots/hell.png)
+
 ## Features
 
 - **Three sources, one box** – paste a Spotify, SoundCloud or YouTube link;
