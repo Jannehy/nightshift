@@ -285,12 +285,24 @@ def create_app() -> Flask:
     @auth.admin_required
     def sync_playlist_meta():
         data = request.json or {}
-        ok = syncreg.set_meta((data.get("url") or "").strip(),
-                              (data.get("file") or "").strip(),
+        url = (data.get("url") or "").strip()
+        filename = (data.get("file") or "").strip()
+        public = bool(data.get("public", True))
+        ok = syncreg.set_meta(url, filename,
                               (data.get("owner") or "").strip() or None,
-                              bool(data.get("public", True)))
-        return (jsonify({"ok": True}) if ok
-                else (jsonify({"error": "Entry not found"}), 404))
+                              public)
+        if not ok:
+            return jsonify({"error": "Entry not found"}), 404
+        # Mirror the visibility change to Navidrome, otherwise "public" would
+        # only affect who sees the playlist inside Nightshift. Owner changes
+        # stay local on purpose — reassigning an existing playlist to another
+        # Navidrome user is not reliable through the internal API.
+        name = syncreg.display_name_of(url, filename) or ""
+        nd_ok, nd_msg = (True, "")
+        if name:
+            nd_ok, nd_msg = navidrome.set_visibility(name, public)
+        return jsonify({"ok": True, "navidrome_ok": nd_ok,
+                        "navidrome": nd_msg})
 
     @app.route("/api/sync-playlists", methods=["DELETE"])
     @auth.login_required

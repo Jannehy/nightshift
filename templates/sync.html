@@ -153,11 +153,19 @@
         save.addEventListener("click", async () => {
           save.disabled = true;
           try {
-            await NS.api("/api/sync-playlists", { method: "PATCH", body: {
-              url: entry.url, file: entry.file,
-              owner: sel.value, public: cb.checked,
-            }});
-            load();
+            const res = await NS.api("/api/sync-playlists", {
+              method: "PATCH", body: {
+                url: entry.url, file: entry.file,
+                owner: sel.value, public: cb.checked,
+              },
+            });
+            await load();
+            // Saving always succeeds locally; Navidrome may still refuse
+            // (playlist not imported yet, service account wrong, ...).
+            if (res && res.navidrome_ok === false) {
+              err.textContent = res.navidrome;
+              err.style.display = "block";
+            }
           } catch (ex) {
             save.disabled = false;
             err.textContent = ex.message;

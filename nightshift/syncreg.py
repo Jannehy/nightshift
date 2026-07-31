@@ -202,6 +202,14 @@ def set_meta(url: str = "", filename: str = "",
     return False
 
 
+def display_name_of(url: str = "", filename: str = "") -> str | None:
+    """The playlist's real title — the name it carries in the media server."""
+    for i in all_sync_items():
+        if (url and i.get("url") == url) or (filename and i.get("file") == filename):
+            return i.get("name")
+    return None
+
+
 def owner_of(url: str = "", filename: str = "") -> str | None:
     for i in all_sync_items():
         if (url and i.get("url") == url) or (filename and i.get("file") == filename):

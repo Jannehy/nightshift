@@ -71,6 +71,33 @@ def set_owner(token: str, playlist_id: str, owner_id: str):
                 token=token, data={"ownerId": owner_id, "public": False})
 
 
+def set_visibility(name: str, public: bool) -> tuple[bool, str]:
+    """Apply a visibility change to an already-imported playlist.
+
+    Used by the sync page editor. Unlike apply_playlist_settings this does
+    not wait for an import — the playlist is expected to exist already, so
+    a single lookup is enough.
+    """
+    if not enabled():
+        return True, "Navidrome integration disabled - skipped"
+    try:
+        token = login()
+    except Exception as e:
+        return False, f"Navidrome login failed: {e}"
+    try:
+        pl = find_playlist_by_name(token, name)
+    except Exception as e:
+        return False, f"Navidrome request failed: {e}"
+    if not pl:
+        return False, f"Playlist '{name}' not found in Navidrome"
+    try:
+        set_public(token, pl["id"], public)
+    except Exception as e:
+        return False, f"Could not update playlist '{name}': {e}"
+    return True, (f"Playlist '{name}' set to public in Navidrome" if public
+                  else f"Playlist '{name}' set to private in Navidrome")
+
+
 def apply_playlist_settings(name: str, owner_id: str | None = None) -> tuple[bool, str]:
     """Waits for the playlist import, then sets it public or assigns an owner.
 

@@ -39,5 +39,9 @@ Nightshift is a Flask application that orchestrates established tools
 - Spotify uses a configurable spotDL output template; SC/YT use a fixed
   `<folder>/<set name>/<index> - <title>` scheme because playlist metadata
   from those platforms is unreliable.
+- Playlist visibility set on the sync page is mirrored to Navidrome;
+  owner changes are Nightshift-local, because reassigning an already
+  imported playlist to a different Navidrome user is not reliable through
+  the internal API.
 - Backend logs and API errors are English; the UI is translated via
   `static/i18n/*.json` (`data-i18n` attributes).
