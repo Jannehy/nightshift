@@ -105,5 +105,7 @@
   "sync.public": "Public",
   "sync.private": "Private",
   "sync.noowner": "No owner",
-  "sync.remove.confirm": "Really remove '{name}' from sync? Already downloaded music is kept."
+  "sync.remove.confirm": "Really remove '{name}' from sync? Already downloaded music is kept.",
+  "settings.field.keep_removed_tracks": "Keep tracks removed from playlists",
+  "settings.hint.keep_removed_tracks": "When off, songs that disappear from the Spotify playlist are also deleted from your library during the nightly sync."
 }

@@ -105,5 +105,7 @@
   "sync.public": "Öffentlich",
   "sync.private": "Privat",
   "sync.noowner": "Ohne Besitzer",
-  "sync.remove.confirm": "'{name}' wirklich aus dem Sync entfernen? Bereits geladene Musik bleibt erhalten."
+  "sync.remove.confirm": "'{name}' wirklich aus dem Sync entfernen? Bereits geladene Musik bleibt erhalten.",
+  "settings.field.keep_removed_tracks": "Aus Playlists entfernte Titel behalten",
+  "settings.hint.keep_removed_tracks": "Wenn aus: Songs, die aus der Spotify-Playlist verschwinden, werden beim nächtlichen Sync auch aus deiner Bibliothek gelöscht."
 }

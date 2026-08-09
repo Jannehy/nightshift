@@ -23,7 +23,7 @@ from pathlib import Path
 from . import syncreg
 from .config import cfg
 from .downloader import AUDIO_EXTS, build_ytdlp_cmd, write_m3u_for
-from .spotify import _ensure_playlist_directive
+from .spotify import _ensure_playlist_directive, looks_unresolved
 from .logs import LiveLog, nightly_log_path
 
 _lock = threading.Lock()
@@ -143,6 +143,12 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
 
     for sync_file in sorted(sync_dir.glob("*.spotdl")):
         name = sync_file.stem
+        if looks_unresolved(name):
+            # Leftover from a download where the playlist name could not be
+            # resolved — syncing it would recreate a bogus playlist nightly.
+            _log_line(log, emit_fn,
+                      f"  Skipping {sync_file.name}: unresolved playlist name")
+            continue
         _log_line(log, emit_fn, f"  Syncing: {name}")
         before = count_spotify()
         success = False
@@ -157,6 +163,8 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
                    "--threads", str(cfg.downloads.spotify_threads),
                    "--save-errors", "errors.txt",
                    "--m3u", f"{name}.m3u8"]
+            if cfg.nightly.keep_removed_tracks:
+                cmd.append("--sync-without-deleting")
             cookie = cfg.downloads.youtube_cookie_file
             if cookie and os.path.exists(cookie):
                 cmd += ["--cookie-file", cookie]

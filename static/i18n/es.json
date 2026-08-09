@@ -105,5 +105,7 @@
   "sync.public": "Pública",
   "sync.private": "Privada",
   "sync.noowner": "Sin propietario",
-  "sync.remove.confirm": "¿Quitar '{name}' de la sincronización? La música ya descargada se conserva."
+  "sync.remove.confirm": "¿Quitar '{name}' de la sincronización? La música ya descargada se conserva.",
+  "settings.field.keep_removed_tracks": "Conservar pistas eliminadas de las listas",
+  "settings.hint.keep_removed_tracks": "Si se desactiva, las canciones que desaparecen de la lista de Spotify también se eliminan de tu biblioteca en la sincronización nocturna."
 }

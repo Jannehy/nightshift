@@ -52,6 +52,11 @@ DEFAULTS: dict = {
         "sync_timeout_seconds": 900,
         "max_attempts": 10,
         "fetch_lyrics": True,
+        # spotDL's sync deletes local files that left the playlist. For a
+        # library manager keeping them is the safer default — rotating
+        # playlists ("Discover Weekly") would otherwise erase music the
+        # user never chose to remove.
+        "keep_removed_tracks": True,
     },
     "sync": {
         "enabled": True,

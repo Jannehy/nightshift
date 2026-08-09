@@ -105,5 +105,7 @@
   "sync.public": "公開",
   "sync.private": "非公開",
   "sync.noowner": "所有者なし",
-  "sync.remove.confirm": "「{name}」を同期から削除しますか？ダウンロード済みの音楽は残ります。"
+  "sync.remove.confirm": "「{name}」を同期から削除しますか？ダウンロード済みの音楽は残ります。",
+  "settings.field.keep_removed_tracks": "プレイリストから削除された曲を保持",
+  "settings.hint.keep_removed_tracks": "オフにすると、Spotify のプレイリストから消えた曲は夜間同期でライブラリからも削除されます。"
 }

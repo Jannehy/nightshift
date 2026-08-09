@@ -105,5 +105,7 @@
   "sync.public": "Publiczna",
   "sync.private": "Prywatna",
   "sync.noowner": "Bez właściciela",
-  "sync.remove.confirm": "Usunąć '{name}' z synchronizacji? Pobrana muzyka zostanie zachowana."
+  "sync.remove.confirm": "Usunąć '{name}' z synchronizacji? Pobrana muzyka zostanie zachowana.",
+  "settings.field.keep_removed_tracks": "Zachowaj utwory usunięte z playlist",
+  "settings.hint.keep_removed_tracks": "Gdy wyłączone, utwory znikające z playlisty Spotify są też usuwane z biblioteki podczas nocnej synchronizacji."
 }

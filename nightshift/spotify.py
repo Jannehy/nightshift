@@ -7,11 +7,14 @@ Navidrome integration and sync registration.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 import shutil
 import subprocess
 import time
+import urllib.parse
+import urllib.request
 from os.path import basename, dirname, getmtime, splitext
 from pathlib import Path
 
@@ -57,12 +60,38 @@ NOISE_PATTERNS = [
 BLOCK_KEYWORDS = ["sign in to confirm", "http error 429", "rate limit"]
 
 
+def playlist_title(url: str) -> str | None:
+    """The playlist's real title, via Spotify's public oEmbed endpoint.
+
+    spotDL's {list-name} placeholder is not always resolved (it stays
+    literal for some link types), which used to produce playlists named
+    "{list-name}". Fetching the title ourselves makes the file name
+    deterministic. Returns None if the lookup fails — callers fall back
+    to the placeholder.
+    """
+    try:
+        api = ("https://open.spotify.com/oembed?url="
+               + urllib.parse.quote(url, safe=""))
+        with urllib.request.urlopen(api, timeout=10) as r:
+            data = json.loads(r.read().decode())
+        title = (data.get("title") or "").strip()
+        return title or None
+    except Exception:
+        return None
+
+
+def looks_unresolved(name: str) -> bool:
+    """True for names that are an unsubstituted template placeholder."""
+    return ("{" in name or "}" in name
+            or name.strip("_ ").lower() in ("list-name", "list name"))
+
+
 def _spotdl_base_cmd() -> list[str]:
     cmd = ["spotdl"]
     return cmd
 
 
-def _download_cmd(url: str) -> list[str]:
+def _download_cmd(url: str, m3u_name: str | None = None) -> list[str]:
     cmd = _spotdl_base_cmd() + ["download", url]
     if cfg.downloads.youtube_cookie_file and os.path.exists(cfg.downloads.youtube_cookie_file):
         cmd += ["--cookie-file", cfg.downloads.youtube_cookie_file]
@@ -72,7 +101,11 @@ def _download_cmd(url: str) -> list[str]:
         "--bitrate", cfg.downloads.spotify_bitrate,
         "--threads", str(cfg.downloads.spotify_threads),
     ]
-    if "playlist" in url:
+    if m3u_name:
+        cmd += ["--m3u", f"{m3u_name}.m3u8"]
+    elif "playlist" in url:
+        # Fallback when the title lookup failed; spotDL substitutes this
+        # itself — but not reliably, hence the check in _handle_playlist.
         cmd += ["--m3u", "{list-name}.m3u8"]
     return cmd
 
@@ -107,6 +140,14 @@ def run_spotify_download(job_id: str, url: str,
         # Snapshot existing playlist files: spotDL writes "{list-name}.m3u8"
         # and would silently overwrite another account's same-named playlist
         # before we get the chance to rename ours (see _handle_playlist).
+        # Resolve the playlist name up front so the m3u8 is written with
+        # the correct, collision-free file name right away.
+        pl_title = pl_unique = None
+        if "playlist" in url:
+            pl_title = playlist_title(url)
+            if pl_title:
+                pl_unique = syncreg.resolve_playlist_name(pl_title, url)
+
         prev_m3us = {}
         for _m in glob.glob(f"{cfg.library.music_root}/*.m3u8"):
             try:
@@ -137,7 +178,7 @@ def run_spotify_download(job_id: str, url: str,
                  progress=3)
 
             proc = subprocess.Popen(
-                _download_cmd(url), cwd=cfg.library.music_root,
+                _download_cmd(url, pl_unique), cwd=cfg.library.music_root,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
             )
@@ -214,7 +255,8 @@ def run_spotify_download(job_id: str, url: str,
             _post_process(q, log, new_files)
             if "playlist" in url:
                 _handle_playlist(q, log, url, owner_id, sync, start_time,
-                                 requested_by, sync_public, prev_m3us)
+                                 requested_by, sync_public, prev_m3us,
+                                 pl_title, pl_unique)
         else:
             skip = "→ No new tracks – skipping beets & lyrics"
             emit(q, "log", line=skip)
@@ -292,7 +334,9 @@ def _handle_playlist(q, log: LiveLog, url: str,
                      owner_id: str | None, sync: bool, since: float,
                      requested_by: str | None = None,
                      sync_public: bool = True,
-                     prev_m3us: dict | None = None):
+                     prev_m3us: dict | None = None,
+                     known_title: str | None = None,
+                     known_unique: str | None = None):
     """Navidrome visibility + optional sync registration for playlists.
 
     Only considers m3u8 files written during THIS job (mtime > since),
@@ -303,13 +347,26 @@ def _handle_playlist(q, log: LiveLog, url: str,
     if not m3us:
         return
     newest = max(m3us, key=getmtime)
-    pl_title = splitext(basename(newest))[0]
+    # The title fetched before the download wins; the file name is only a
+    # fallback and may still carry an unresolved spotDL placeholder.
+    pl_title = known_title or splitext(basename(newest))[0]
+
+    if looks_unresolved(pl_title):
+        msg = ("Could not determine the playlist name — the tracks were "
+               "downloaded, but no playlist file was created")
+        emit(q, "log", line=msg)
+        log.write(msg)
+        try:
+            os.remove(newest)
+        except OSError:
+            pass
+        return
 
     # Personalized playlists ("Discover Weekly") collide across accounts:
     # give this one a unique file name and keep the real title in #PLAYLIST.
-    unique = syncreg.resolve_playlist_name(pl_title, url)
-    if unique != pl_title:
-        target = f"{cfg.library.music_root}/{unique}.m3u8"
+    unique = known_unique or syncreg.resolve_playlist_name(pl_title, url)
+    target = f"{cfg.library.music_root}/{unique}.m3u8"
+    if os.path.abspath(newest) != os.path.abspath(target):
         try:
             clobbered = basename(newest)
             os.replace(newest, target)

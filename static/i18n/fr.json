@@ -105,5 +105,7 @@
   "sync.public": "Publique",
   "sync.private": "Privée",
   "sync.noowner": "Sans propriétaire",
-  "sync.remove.confirm": "Retirer '{name}' de la synchronisation ? La musique déjà téléchargée est conservée."
+  "sync.remove.confirm": "Retirer '{name}' de la synchronisation ? La musique déjà téléchargée est conservée.",
+  "settings.field.keep_removed_tracks": "Conserver les titres retirés des playlists",
+  "settings.hint.keep_removed_tracks": "Si désactivé, les morceaux qui disparaissent de la playlist Spotify sont aussi supprimés de ta bibliothèque lors de la synchro nocturne."
 }

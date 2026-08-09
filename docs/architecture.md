@@ -39,6 +39,15 @@ Nightshift is a Flask application that orchestrates established tools
 - Spotify uses a configurable spotDL output template; SC/YT use a fixed
   `<folder>/<set name>/<index> - <title>` scheme because playlist metadata
   from those platforms is unreliable.
+- The nightly Spotify sync runs with `--sync-without-deleting` by default
+  (`nightly.keep_removed_tracks`). spotDL would otherwise delete local files
+  once a track leaves the playlist — destructive for rotating playlists and
+  for tracks shared between several synced playlists.
+- Spotify playlist names are resolved via Spotify's public oEmbed endpoint
+  before the download, so the m3u8 gets its final, collision-free name
+  immediately. If the lookup fails and spotDL leaves its `{list-name}`
+  placeholder unsubstituted, the playlist file is discarded rather than
+  registered — the tracks themselves are kept.
 - Playlist visibility set on the sync page is mirrored to Navidrome;
   owner changes are Nightshift-local, because reassigning an already
   imported playlist to a different Navidrome user is not reliable through
