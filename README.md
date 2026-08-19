@@ -32,7 +32,24 @@ folder of audio files.
 - **Multi-user** – admin and regular accounts; only admins see settings
 - **Setup wizard** – first run walks you through admin account, library path
   and options; no config file editing required
+- **Native apps for iOS and Android** – same server, same API, no extra setup
 - **Day & night shift** – full light/dark theme, UI in seven languages
+
+## Apps
+
+Nightshift's web UI works fine on a phone, but there are native clients too.
+Both talk to the same API as the browser does — nothing to enable on the server,
+though **1.3 or newer** is worth having: from that release the download log is
+kept per user, so two people no longer watch each other's runs.
+
+| | |
+|---|---|
+| [**Nightshift for iOS**](https://github.com/Jannehy/nightshift-ios) | SwiftUI, iOS 16+. Installed through AltStore or SideStore — Apple does not allow this kind of app in the App Store |
+| [**Nightshift for Android**](https://github.com/Jannehy/nightshift-android) | Jetpack Compose, Android 8+. Installed from the APK on its releases page |
+
+Both give you the download box with its live log, the iTunes search with
+previews, the sync playlists, the nightly job, and the full server settings —
+in German and English.
 
 ## Quick start (Docker, recommended)
 
@@ -100,7 +117,18 @@ installation, wrap the last two lines in a systemd service.
 > **Note:** `deno` must be reachable in the PATH of the *process running
 > Nightshift* (this matters for systemd services and cron-like setups — it is
 > the single most common cause of YouTube downloads failing with
-> "Requested format is not available").
+> "Requested format is not available"). yt-dlp uses it to solve YouTube's JS
+> challenge.
+
+> **yt-dlp is pinned to a nightly build** in `requirements.txt`. YouTube
+> changes faster than the stable channel is released: with the stable version
+> current at the time of writing, every download failed with HTTP 403 or
+> "Requested format is not available". If downloads start failing that way
+> again, raise the pin:
+>
+> ```bash
+> pip index versions yt-dlp --pre | head -1
+> ```
 
 ## Configuration
 
