@@ -126,10 +126,16 @@ def find_new_tracks(since_timestamp: float) -> list[str]:
 def run_spotify_download(job_id: str, url: str,
                          owner_id: str | None = None, sync: bool = False,
                          requested_by: str | None = None,
-                         sync_public: bool = True):
-    """Main entry: Spotify download (URL or search query) via spotDL."""
+                         sync_public: bool = True,
+                         live_log: LiveLog | None = None):
+    """Main entry: Spotify download (URL or search query) via spotDL.
+
+    `live_log` is handed in by album downloads so every track appends to the
+    same file instead of truncating it once per track; on its own the run
+    opens the requesting user's log.
+    """
     q = jobs[job_id]
-    log = LiveLog(download_log_path())
+    log = live_log or LiveLog(download_log_path(requested_by))
 
     try:
         log.start(f"URL: {url}")

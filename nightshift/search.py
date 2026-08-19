@@ -7,11 +7,19 @@ import threading
 import requests
 from flask import Blueprint, jsonify, render_template, request
 
+from . import auth
 from .config import cfg
 from .jobs import enqueue, jobs, new_job
+from .logs import LiveLog, download_log_path
 from .spotify import run_spotify_download
 
 bp = Blueprint("search", __name__)
+
+
+def _current_username() -> str | None:
+    """Who asked for this download – decides which live log it writes to."""
+    user = auth.current_user() or {}
+    return user.get("username")
 
 
 @bp.route("/search")
@@ -105,7 +113,8 @@ def download_from_query():
         return jsonify({"error": "missing query"}), 400
 
     job_id, _ = new_job()
-    position = enqueue(job_id, run_spotify_download, query, label="Spotify")
+    position = enqueue(job_id, run_spotify_download, query, label="Spotify",
+                       kwargs={"requested_by": _current_username()})
     return jsonify({"job_id": job_id, "query": query, "position": position})
 
 
@@ -143,32 +152,43 @@ def download_album():
         return jsonify({"error": "No tracks found in album"}), 404
 
     job_id, _ = new_job()
-    position = enqueue(job_id, _run_album_download, queries, label="Album")
+    position = enqueue(job_id, _run_album_download, queries, label="Album",
+                       kwargs={"requested_by": _current_username()})
     return jsonify({"job_id": job_id, "track_count": len(queries),
                     "position": position})
 
 
-def _run_album_download(album_job_id: str, queries: list[str]):
-    """Sequential single-track downloads, streams merged into the album job."""
+def _run_album_download(album_job_id: str, queries: list[str],
+                        requested_by: str | None = None):
+    """Sequential single-track downloads, streams merged into the album job.
+
+    The album owns the live log: it is opened once here and the per-track runs
+    append to it, so the file holds the whole album instead of only the last
+    track, and no DONE marker appears before the album is actually through.
+    """
     main_q = jobs[album_job_id]
+    log = LiveLog(download_log_path(requested_by))
 
     def emit(type_, **data):
         main_q.put({"type": type_, **data})
 
     total = len(queries)
+    log.start(f"Album: {total} tracks")
     emit("status", message=f"Album download: {total} tracks (sequential)", progress=0)
 
     for i, query in enumerate(queries, 1):
-        emit("status",
-             message=f"━━━ Track {i}/{total}: {query} ━━━",
-             progress=int((i - 1) / total * 100))
+        header = f"━━━ Track {i}/{total}: {query} ━━━"
+        emit("status", message=header, progress=int((i - 1) / total * 100))
+        log.write(header)
 
         sub_id = f"{album_job_id}-{i}"
         jobs[sub_id] = queue.Queue()
         sub_q = jobs[sub_id]
 
         sub_thread = threading.Thread(
-            target=run_spotify_download, args=(sub_id, query), daemon=True,
+            target=run_spotify_download, args=(sub_id, query),
+            kwargs={"requested_by": requested_by, "live_log": log.child()},
+            daemon=True,
         )
         sub_thread.start()
 
@@ -181,5 +201,7 @@ def _run_album_download(album_job_id: str, queries: list[str]):
         sub_thread.join(timeout=2)
         jobs.pop(sub_id, None)
 
-    emit("status", message=f"Album download finished ({total} tracks)", progress=100)
+    done_msg = f"Album download finished ({total} tracks)"
+    log.finish(done_msg)
+    emit("status", message=done_msg, progress=100)
     emit("done", message="Album complete")

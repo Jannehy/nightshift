@@ -127,7 +127,7 @@ def run_ytdlp_download(job_id: str, url: str,
                        sync_public: bool = True):
     """Main entry: SoundCloud/YouTube download streaming live into the job."""
     q = jobs[job_id]
-    log = LiveLog(download_log_path())
+    log = LiveLog(download_log_path(requested_by))
     try:
         base_dir, source = _source_for(url)
         log.start(f"{source}-URL: {url}")

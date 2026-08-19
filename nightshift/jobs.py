@@ -33,10 +33,12 @@ def emit(q, type_: str, **data):
     q.put({"type": type_, **data})
 
 
-def enqueue(job_id: str | None, target, *args, label: str = "") -> int:
+def enqueue(job_id: str | None, target, *args, label: str = "",
+            kwargs: dict | None = None) -> int:
     """Add a task to the serial queue. Returns the queue position
     (0 = will start immediately, 1 = one task ahead, ...)."""
-    task = {"job_id": job_id, "target": target, "args": args, "label": label}
+    task = {"job_id": job_id, "target": target, "args": args,
+            "kwargs": kwargs or {}, "label": label}
     with _state_lock:
         position = len(_pending) + (1 if _current else 0)
         _pending.append(task)
@@ -73,7 +75,7 @@ def _worker():
                 _pending.remove(task)
             _current = task
         try:
-            task["target"](task["job_id"], *task["args"])
+            task["target"](task["job_id"], *task["args"], **task["kwargs"])
         except Exception:
             pass
         finally:

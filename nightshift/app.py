@@ -14,11 +14,12 @@ import socket
 from flask import (Flask, Response, jsonify, redirect, render_template,
                    request, session)
 
-from . import auth, navidrome, nightly, scheduler, syncreg
+from . import __version__, auth, navidrome, nightly, scheduler, syncreg
 from .config import DEFAULTS, cfg
 from .downloader import run_ytdlp_download
 from .jobs import enqueue, jobs, new_job, queue_status
-from .logs import LiveLog, download_log_path, nightly_log_path
+from .logs import (LiveLog, download_log_path, nightly_log_path,
+                   remove_download_log)
 from .search import bp as search_bp
 from .spotify import run_spotify_download
 
@@ -34,7 +35,7 @@ def create_app() -> Flask:
     # ------------------------------------------------------------------
     # Access gate: setup wizard → login → app
     # ------------------------------------------------------------------
-    OPEN_PATHS = ("/static/", "/health")
+    OPEN_PATHS = ("/static/", "/health", "/api/version")
     SETUP_PATHS = ("/setup", "/api/setup")
     LOGIN_PATHS = ("/login", "/api/login")
 
@@ -64,7 +65,14 @@ def create_app() -> Flask:
     @app.route("/health")
     def health():
         return jsonify({"status": "ok",
-                        "configured": cfg.exists and auth.has_users()})
+                        "configured": cfg.exists and auth.has_users(),
+                        "version": __version__})
+
+    @app.route("/api/version")
+    def api_version():
+        """Open on purpose: clients check what they are talking to before they
+        have a session, so they can warn about a server too old for them."""
+        return jsonify({"name": "Nightshift", "version": __version__})
 
     @app.route("/setup")
     def setup():
@@ -209,7 +217,10 @@ def create_app() -> Flask:
     @app.route("/download-log")
     @auth.login_required
     def download_log():
-        state = LiveLog(download_log_path()).read_state()
+        # Everyone reads their own log: downloads run one at a time, but the
+        # next person's run must not overwrite what this user sees.
+        user = auth.current_user()["username"]
+        state = LiveLog(download_log_path(user)).read_state()
         state["running"] = bool(state["log"]) and not (
             state["finished"] or state["failed"])
         return jsonify(state)
@@ -339,7 +350,10 @@ def create_app() -> Flask:
     @auth.admin_required
     def users_delete():
         data = request.json or {}
-        ok, msg = auth.delete_user(data.get("username") or "")
+        username = data.get("username") or ""
+        ok, msg = auth.delete_user(username)
+        if ok:
+            remove_download_log(username)
         return (jsonify({"ok": True}) if ok
                 else (jsonify({"error": msg}), 400))
 
