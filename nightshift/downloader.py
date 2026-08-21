@@ -15,7 +15,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import navidrome, syncreg
+from . import navidrome, syncreg, tagtidy
 from .config import cfg
 from .jobs import emit, jobs
 from .logs import LiveLog, download_log_path
@@ -217,6 +217,14 @@ def run_ytdlp_download(job_id: str, url: str,
                 for m3u in write_m3u_for(new_files, display_name=title):
                     emit(q, "log", line=f"Playlist created: {Path(m3u).name}")
                     log.write(f"Playlist created: {m3u}")
+
+            # SoundCloud and YouTube deliver whatever the page says; the
+            # Spotify path never comes through here and needs no repair.
+            tidied = tagtidy.tidy(new_files)
+            if tidied:
+                tm = f"Tags tidied: {tidied} file(s)"
+                emit(q, "log", line=tm)
+                log.write(tm)
 
             _beets_import(q, log, new_files)
 

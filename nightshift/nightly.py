@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import syncreg
 from .config import cfg
+from . import tagtidy
 from .downloader import AUDIO_EXTS, build_ytdlp_cmd, write_m3u_for
 from .spotify import _ensure_playlist_directive, looks_unresolved
 from .logs import LiveLog, nightly_log_path
@@ -350,6 +351,9 @@ def _registry_sync_step(log, emit_fn) -> tuple[int, int]:
         if set_dir.is_dir():
             tracks = [str(f) for f in set_dir.iterdir()
                       if f.suffix.lower() in AUDIO_EXTS]
+            tidied = tagtidy.tidy(tracks)
+            if tidied:
+                _log_line(log, emit_fn, f"    Tags tidied: {tidied} file(s)")
             if tracks:
                 for m3u in write_m3u_for(tracks, display_name=e.get("name")):
                     _log_line(log, emit_fn,
