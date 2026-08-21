@@ -151,6 +151,31 @@ Highlights:
 | `navidrome.*` | Optional Navidrome connection for playlist visibility/ownership |
 | `beets.enabled` | Toggle beets tagging |
 
+### Multiple artists per track in Navidrome
+
+spotDL writes every artist of a track into the single `artist` tag and saves
+the file as ID3v2.3, where the standard separator for multiple values is `/`.
+A track therefore ends up tagged `21 Savage/Metro Boomin/Young Thug`.
+
+Navidrome splits that tag only on `" / "` **with** spaces, `" feat. "`,
+`" ft. "` and `"; "` — not on a bare `/`. Without help it treats the whole
+string as one artist, so the library fills up with names that are really
+collaborations, and no metadata agent finds a picture for them.
+
+One line in `navidrome.toml` fixes it, for existing files as well as new ones:
+
+```toml
+Tags.Artist.Split = ["/", " / ", " feat. ", " feat ", " ft. ", " ft ", "; "]
+```
+
+The list replaces Navidrome's defaults, so it repeats them. A **full scan** is
+needed afterwards (Settings → Library, or `navidrome scan --full`); nothing on
+disk is touched, only how Navidrome reads the tags.
+
+Leave `album_artist` alone: names like `Axwell /\ Ingrosso` or
+`Yusuf / Cat Stevens` carry a genuine slash, and albums stay grouped correctly
+because spotDL already writes a single artist there.
+
 ## How the nightly sync works
 
 Every night (schedule configurable) Nightshift:
