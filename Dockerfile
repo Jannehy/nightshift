@@ -28,6 +28,26 @@ RUN case "$TARGETARCH" in \
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
+# spotDL 4.5.2 hardcodes YTMusic(language="de"). With ytmusicapi 1.12 the German
+# locale returns zero results for the "songs" filter, so every search burns three
+# retries, logs "YouTube Music returned no usable results" and settles for a
+# video result instead of the song. Removing the language halves the time per
+# track. The patch is located through the installed module rather than a fixed
+# path, and is a no-op once upstream fixes this.
+RUN python - <<'PATCH'
+import pathlib
+from spotdl.providers.audio import ytmusic
+
+path = pathlib.Path(ytmusic.__file__)
+source = path.read_text()
+needle = 'YTMusic(language="de")'
+if needle in source:
+    path.write_text(source.replace(needle, "YTMusic()"))
+    print(f"patched {path}")
+else:
+    print(f"no patch needed in {path}")
+PATCH
+
 # App
 WORKDIR /app
 COPY nightshift/ /app/nightshift/

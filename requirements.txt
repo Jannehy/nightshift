@@ -3,7 +3,12 @@ pyyaml>=6.0
 requests>=2.31
 apscheduler>=3.10
 spotdl>=4.2
-yt-dlp>=2025.1.1
+# Pinned to a nightly build on purpose. The stable channel (2026.7.4 at the
+# time of writing) cannot solve YouTube's current JS challenge and every
+# download fails with HTTP 403 or "Requested format is not available";
+# the nightly solves it with deno, which this image already ships.
+# Bump with:  pip index versions yt-dlp --pre | head -1
+yt-dlp==2026.8.18.122307.dev0
 beets>=2.0
 waitress>=3.0
 tzdata>=2024.1

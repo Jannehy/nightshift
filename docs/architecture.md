@@ -46,7 +46,17 @@ Nightshift is a Flask application that orchestrates established tools
   Otherwise every track truncated the file and the first finished track
   marked the whole album as done.
 
+- **spotDL's YouTube Music client is patched at image build** to drop its
+  hardcoded `language="de"`. With that locale, ytmusicapi returns nothing
+  for the `songs` filter, so spotDL retries three times, gives up and takes
+  a video result — twice the time per track, and not the album version.
+  The patch checks for the pattern first, so it disappears quietly once
+  upstream fixes it.
+
 - **One yt-dlp** (pip) serves both Nightshift and spotDL – no version drift.
+  It is pinned to a nightly build: YouTube's JS challenge moves faster than
+  the stable channel, and a version that cannot solve it fails every
+  download with HTTP 403 rather than degrading gracefully.
 - **deno** is baked into the image; it must be on the PATH of the process
   running yt-dlp, or some YouTube downloads fail with
   "Requested format is not available".
