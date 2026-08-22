@@ -4,8 +4,6 @@
 # ============================================================
 FROM python:3.12-slim
 
-ARG TARGETARCH=amd64
-
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg curl unzip gosu tzdata ca-certificates \
@@ -14,9 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # deno – solves YouTube's JS challenges for yt-dlp.
 # Baked into the image: prevents the "Requested format is not available"
 # class of errors caused by deno missing from PATH.
-RUN case "$TARGETARCH" in \
-        arm64) DENO_ARCH="aarch64-unknown-linux-gnu" ;; \
-        *)     DENO_ARCH="x86_64-unknown-linux-gnu" ;; \
+# The architecture comes from the machine this step runs on, not from a build
+# argument: a default on ARG TARGETARCH masks the value BuildKit provides, and
+# the arm64 leg then quietly pulls the x86 binary.
+RUN set -eux; \
+    case "$(uname -m)" in \
+        aarch64) DENO_ARCH="aarch64-unknown-linux-gnu" ;; \
+        x86_64)  DENO_ARCH="x86_64-unknown-linux-gnu" ;; \
+        *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
     esac \
     && curl -fsSL "https://github.com/denoland/deno/releases/latest/download/deno-${DENO_ARCH}.zip" -o /tmp/deno.zip \
     && unzip -q /tmp/deno.zip -d /usr/local/bin \
