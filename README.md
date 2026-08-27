@@ -176,6 +176,55 @@ Leave `album_artist` alone: names like `Axwell /\ Ingrosso` or
 `Yusuf / Cat Stevens` carry a genuine slash, and albums stay grouped correctly
 because spotDL already writes a single artist there.
 
+## Tagging and genres
+
+Nightshift ships beets and configures it for you: on first start it writes
+`config/beets/config.yaml` and `config/beets/genres.txt` if they are not there
+yet. Both files are yours from that moment on — Nightshift never overwrites
+them.
+
+The configuration exists because beets **without** one is not beets without an
+opinion. It falls back to `directory: ~/Music` and `copy: yes`, which makes it
+copy every imported track into the container and tag the copy: the real file
+never changes, and the copies are gone with the next image update. The
+generated file sets `copy: no` and points beets at your library instead, so it
+tags in place.
+
+Two more settings matter, and both exist because a nightly job has no terminal:
+
+| | |
+|---|---|
+| `quiet: yes` | beets must never ask a question |
+| `duplicate_action: merge` | album folders grow — a track is added to an album that was imported on an earlier night. Without this, beets asks what to do with the duplicate and the run ends with an import error |
+
+### The genre whitelist
+
+`config/beets/genres.txt` is a plain list, one genre per line. It decides which
+genres may end up in your library: the `lastgenre` plugin looks a release up on
+last.fm and keeps the highest-weighted tag that appears in the list. Everything
+else — "seen live", an artist's own name, someone's keyword soup — is dropped,
+and a track that matches nothing keeps no genre at all. A wrong genre is worse
+than none.
+
+The same list is used for SoundCloud and YouTube downloads, where the genre
+field is free text that people fill with anything. Those files do not go
+through beets, so Nightshift checks the tag itself: it matches the value
+against the list regardless of spacing, case and punctuation, then falls back
+to the parts of a keyword list, and drops what it cannot place.
+
+Edit the file to your taste — add a genre, remove one — and the change takes
+effect on the next download. No restart needed.
+
+Note that beets writes the spelling last.fm uses, title-cased, not the spelling
+in your list: the whitelist decides *whether* a genre is allowed, never *how*
+it is written. Nightshift corrects that after tagging, so `EDM` does not become
+`Edm`.
+
+### Turning it off
+
+Set `beets.enabled: false` in the settings page or in `config.yaml`. Nothing
+else changes; downloads keep the tags their source provided.
+
 ## How the nightly sync works
 
 Every night (schedule configurable) Nightshift:

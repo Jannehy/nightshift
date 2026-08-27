@@ -291,7 +291,48 @@ def _beets_step(log, emit_fn, prev_ts: float, new_tracks: int) -> list[str]:
                        capture_output=True, text=True)
     if r.returncode != 0:
         subprocess.run(beet_cmd + ["write"], capture_output=True, text=True)
+
+    _spelling_step(log, emit_fn, beet_cmd)
     return new_files
+
+
+def _spelling_step(log, emit_fn, beet_cmd: list[str]) -> None:
+    """Puts the genres back into the spelling the whitelist itself uses.
+
+    lastgenre writes last.fm's own tag with .title() applied, and the whitelist
+    it checks against is lower-cased on load: it decides whether a genre is
+    allowed, never how it is written. "edm" therefore arrives as "Edm" and
+    "drum and bass" as "Drum And Bass", however the whitelist spells them.
+
+    Running over the whole library rather than only the new files costs one
+    query and repairs anything an earlier night wrote as well.
+    """
+    table = tagtidy.whitelist()
+    if not table:
+        return
+    listing = subprocess.run(beet_cmd + ["ls", "-f", "$id\t$genres"],
+                             capture_output=True, text=True)
+    if listing.returncode != 0:
+        return
+
+    fixed = 0
+    for line in listing.stdout.splitlines():
+        item_id, _, genre = line.partition("\t")
+        genre = genre.strip()
+        if not genre or not item_id.strip().isdigit():
+            continue
+        wanted = table.get(tagtidy.simplify(genre))
+        if not wanted or wanted == genre:
+            continue
+        subprocess.run(beet_cmd + ["modify", "-y", f"id:{item_id}",
+                                   f"genres={wanted}"],
+                       capture_output=True, text=True)
+        subprocess.run(beet_cmd + ["write", f"id:{item_id}"],
+                       capture_output=True, text=True)
+        fixed += 1
+    if fixed:
+        _log_line(log, emit_fn, f"  Genre spelling corrected: {fixed} track(s)")
+
 
 
 def _lyrics_step(log, emit_fn, new_files: list[str]):

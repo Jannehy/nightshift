@@ -15,6 +15,11 @@ Three corrections, all of them conservative:
 * a leading "<artist> - " is removed from the title, but only when the prefix
   really is the artist tag, so "The Boy Is Mine feat. Rosalie - James Mac"
   stays as it is,
+* the genre is checked against the whitelist beets already uses, because on
+  those platforms it is a free text box: people put subgenres in it, the name
+  of their DJ controller, a list of thirty keywords, or "internet". What
+  cannot be matched to the whitelist is dropped rather than carried into the
+  library,
 * several artists in one tag are separated the way ID3v2.3 wants it, with a
   slash. SoundCloud hands them over as "A， B" or "A • B", which every player
   reads as one long artist name; "A/B" is the form Navidrome and the Spotify
@@ -27,6 +32,7 @@ Spotify itself, where it is already correct.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -50,6 +56,80 @@ PROMO = re.compile(
 # Everything the platforms use between two artists. The full-width forms come
 # from their own sanitising, since a file name cannot hold the plain ones.
 SEPARATORS = ("，", "、", "•", "/", ",")
+
+
+# The same list lastgenre matches against, so the library keeps one vocabulary
+# whether a track came from Spotify (tagged by beets) or from SoundCloud
+# (tagged here). Without the file nothing is dropped - no whitelist, no
+# opinion.
+GENRE_WHITELIST = Path(os.environ.get("BEETSDIR", "/config/beets")) / "genres.txt"
+
+# Spellings that keep turning up and clearly mean a whitelisted genre without
+# being spelled like one.
+GENRE_ALIASES = {
+    "hardbounce": "Bounce",
+    "hardrave": "Hard Dance",
+    "neorave": "Hard Dance",
+    "acidtechno": "Techno",
+    "acid": "Techno",
+    "eurotechno": "Techno",
+    "hardhouse": "House",
+    "hothouse": "House",
+    "hardtrance": "Trance",
+    "newtrance": "Trance",
+    "groove": "Hardgroove",
+}
+
+# What separates the parts of a genre tag that someone used as a keyword list.
+GENRE_SPLIT = re.compile(r"[,/&|;•·]|\s-\s")
+
+_whitelist_cache: tuple[float, dict[str, str]] = (0.0, {})
+
+
+def simplify(value: str) -> str:
+    """Comparable form: case, spaces and punctuation must not matter."""
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def whitelist() -> dict[str, str]:
+    """Simplified spelling -> the spelling the whitelist itself uses."""
+    global _whitelist_cache
+    try:
+        stamp = GENRE_WHITELIST.stat().st_mtime
+    except OSError:
+        return {}
+    if stamp != _whitelist_cache[0]:
+        table = {}
+        for line in GENRE_WHITELIST.read_text(encoding="utf-8").splitlines():
+            name = line.strip()
+            if name:
+                # setdefault, not assignment: "Hip-Hop" and "Hip Hop" simplify
+                # to the same key, and the spelling the list names first is the
+                # one the library should use.
+                table.setdefault(simplify(name), name)
+        _whitelist_cache = (stamp, table)
+    return _whitelist_cache[1]
+
+
+def tidy_genre(value: str) -> str:
+    """The whitelisted genre behind a free-text tag, or "" when there is none.
+
+    The whole value first - "Hard Techno" is one genre, not two - then its
+    parts, so a keyword list still yields the one genre hiding in it.
+    """
+    table = whitelist()
+    if not table:
+        return value
+    for part in [value, *GENRE_SPLIT.split(value)]:
+        key = simplify(part)
+        if not key:
+            continue
+        if key in table:
+            return table[key]
+        alias = GENRE_ALIASES.get(key)
+        if alias and simplify(alias) in table:
+            return alias
+    return ""
 
 
 def artist_parts(value: str) -> list[str]:
@@ -109,7 +189,8 @@ def _read(path: Path):
             value = value[0] if value else ""
         return value or ""
 
-    return audio, {key: one(key) for key in ("artist", "title", "albumartist")}
+    return audio, {key: one(key)
+                   for key in ("artist", "title", "albumartist", "genre")}
 
 
 def folder_artist_of(folder: Path) -> str:
@@ -159,10 +240,24 @@ def tidy(paths: list[str]) -> int:
                       for key, value in proposal(tags,
                                                  folder_artists[path.parent]).items()
                       if value and value != tags.get(key, "")}
-            if not wanted:
+            # Separately, because the genre is the one tag that may end up
+            # empty: a proposal of "" means "this was never a genre".
+            genre = tags.get("genre", "")
+            wanted_genre = tidy_genre(genre) if genre else ""
+            genre_differs = bool(genre) and wanted_genre != genre
+
+            if not wanted and not genre_differs:
                 continue
             for key, value in wanted.items():
                 audio[key] = value
+            if genre_differs:
+                if wanted_genre:
+                    audio["genre"] = wanted_genre
+                else:
+                    try:
+                        del audio["genre"]
+                    except KeyError:
+                        pass
             audio.save()
             changed += 1
         except Exception:
