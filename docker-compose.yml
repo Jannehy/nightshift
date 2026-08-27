@@ -1,16 +1,19 @@
 services:
   nightshift:
-    build: .
-    # After release: image: ghcr.io/jannehy/nightshift:latest
+    image: ghcr.io/jannehy/nightshift:latest
     container_name: nightshift
     ports:
       - "8765:8765"
     volumes:
-      # Persistent data: config.yaml, cookies, sync registry, logs, beets DB
+      # Everything Nightshift keeps: config, cookies, logs, the sync registry
+      # and the beets database and configuration.
       - ./config:/config
-      # Music library – adjust the path to your system
-      - /pfad/zur/musik:/music
+      # Your music library. Change the left side only – inside the container
+      # the library is always /music.
+      - /path/to/your/music:/music
     environment:
+      # The user the files should belong to. Must be able to write to the
+      # library: id -u and id -g on the host tell you the numbers.
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Berlin
