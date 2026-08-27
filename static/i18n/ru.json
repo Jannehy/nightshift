@@ -107,5 +107,11 @@
   "sync.noowner": "Без владельца",
   "sync.remove.confirm": "Убрать '{name}' из синхронизации? Уже загруженная музыка сохранится.",
   "settings.field.keep_removed_tracks": "Сохранять треки, удалённые из плейлистов",
-  "settings.hint.keep_removed_tracks": "Если выключено, треки, исчезнувшие из плейлиста Spotify, удаляются и из вашей библиотеки при ночной синхронизации."
+  "settings.hint.keep_removed_tracks": "Если выключено, треки, исчезнувшие из плейлиста Spotify, удаляются и из вашей библиотеки при ночной синхронизации.",
+  "settings.field.youtube_cookie_upload": "Обновить cookie YouTube: перетащите файл или нажмите",
+  "settings.field.soundcloud_cookie_upload": "Обновить cookie SoundCloud: перетащите файл или нажмите",
+  "settings.cookies.uploading": "проверка …",
+  "settings.cookies.ok": "Сохранено, cookie:",
+  "settings.cookies.failed": "Ошибка:",
+  "settings.cookies.wrongsite": "Внимание, эти cookie не от"
 }

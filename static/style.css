@@ -151,6 +151,28 @@ input[type="text"], input[type="password"], input[type="number"], select {
 }
 input:focus, select:focus { border-color: var(--accent); }
 .field { margin-bottom: 1.1rem; }
+
+/* Ablagefeld fuer Cookie-Dateien: klickbar und als Ziel zum Hineinziehen. */
+.dropzone {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.dropzone:hover { border-color: var(--accent); color: var(--ink); }
+.dropzone.over {
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.dropzone.ok { border-color: var(--ok); border-style: solid; }
+.dropzone .hint { margin-top: 0.4rem; }
+.dropzone .hint:empty { display: none; }
 .row { display: flex; gap: 0.75rem; }
 .row > * { flex: 1; }
 

@@ -73,8 +73,12 @@
         ["downloads", "settings.section.downloads", [
           ["youtube_cookie_file", "text", "settings.field.youtube_cookie_file", null,
            null, "docker:settings.hint.path.docker"],
+          ["youtube_cookie_file", "cookiedrop", "settings.field.youtube_cookie_upload",
+           "youtube"],
           ["soundcloud_cookie_file", "text", "settings.field.soundcloud_cookie_file", null,
            null, "docker:settings.hint.path.docker"],
+          ["soundcloud_cookie_file", "cookiedrop", "settings.field.soundcloud_cookie_upload",
+           "soundcloud"],
           ["spotify_format", "select", "settings.field.spotify_format", ["mp3", "m4a", "opus", "flac"]],
           ["spotify_bitrate", "text", "settings.field.spotify_bitrate"],
           ["spotify_threads", "number", "settings.field.spotify_threads"],
@@ -105,6 +109,70 @@
 
       const fid = (s, k) => `cfg-${s}-${k}`;
 
+      // A cookie file cannot be typed, only exported from a browser. Dropping it
+      // here puts it where the download tools look for it, with the name and the
+      // permissions they need, and keeps the previous one as a backup.
+      function cookieDrop(sec, key, labelI18n, kind) {
+        const zone = document.createElement("div");
+        zone.className = "dropzone";
+        const text = document.createElement("span");
+        text.dataset.i18n = labelI18n;
+        zone.appendChild(text);
+
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".txt,text/plain";
+        input.hidden = true;
+        zone.appendChild(input);
+
+        const status = document.createElement("p");
+        status.className = "hint";
+        zone.appendChild(status);
+
+        const send = async (file) => {
+          if (!file) return;
+          status.style.color = "";
+          status.textContent = NS.t("settings.cookies.uploading");
+          const body = new FormData();
+          body.append("file", file);
+          try {
+            const res = await fetch(`/api/cookies/${kind}`, { method: "POST", body });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || res.statusText);
+            zone.classList.add("ok");
+            status.textContent =
+              `${NS.t("settings.cookies.ok")} ${data.cookies} · ${data.hosts.join(", ")}`;
+            if (data.warning) {
+              zone.classList.remove("ok");
+              status.style.color = "var(--accent)";
+              status.textContent +=
+                ` — ${NS.t("settings.cookies.wrongsite")} ${data.warning}`;
+            }
+            const field = document.getElementById(fid(sec, key));
+            if (field) field.value = data.path;
+          } catch (e) {
+            zone.classList.remove("ok");
+            status.style.color = "var(--err)";
+            status.textContent = `${NS.t("settings.cookies.failed")} ${e.message}`;
+          }
+        };
+
+        zone.addEventListener("click", () => input.click());
+        input.addEventListener("change", () => send(input.files[0]));
+        ["dragenter", "dragover"].forEach((ev) =>
+          zone.addEventListener(ev, (e) => {
+            e.preventDefault();
+            zone.classList.add("over");
+          }));
+        ["dragleave", "drop"].forEach((ev) =>
+          zone.addEventListener(ev, (e) => {
+            e.preventDefault();
+            zone.classList.remove("over");
+          }));
+        zone.addEventListener("drop", (e) => send(e.dataTransfer.files[0]));
+        return zone;
+      }
+
       function build() {
         wrap.innerHTML = "";
         SECTIONS.forEach(([sec, secI18n, fields]) => {
@@ -118,6 +186,12 @@
             const val = (config[sec] || {})[key];
             const field = document.createElement("div");
             field.className = "field";
+
+            if (type === "cookiedrop") {
+              field.appendChild(cookieDrop(sec, key, labelI18n, options));
+              card.appendChild(field);
+              return;
+            }
 
             if (type === "check") {
               const lab = document.createElement("label");

@@ -107,5 +107,11 @@
   "sync.noowner": "No owner",
   "sync.remove.confirm": "Really remove '{name}' from sync? Already downloaded music is kept.",
   "settings.field.keep_removed_tracks": "Keep tracks removed from playlists",
-  "settings.hint.keep_removed_tracks": "When off, songs that disappear from the Spotify playlist are also deleted from your library during the nightly sync."
+  "settings.hint.keep_removed_tracks": "When off, songs that disappear from the Spotify playlist are also deleted from your library during the nightly sync.",
+  "settings.field.youtube_cookie_upload": "Update YouTube cookies: drop a file here or click",
+  "settings.field.soundcloud_cookie_upload": "Update SoundCloud cookies: drop a file here or click",
+  "settings.cookies.uploading": "checking …",
+  "settings.cookies.ok": "Saved, cookies:",
+  "settings.cookies.failed": "Failed:",
+  "settings.cookies.wrongsite": "Careful, these cookies are not for"
 }

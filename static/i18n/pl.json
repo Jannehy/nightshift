@@ -107,5 +107,11 @@
   "sync.noowner": "Bez właściciela",
   "sync.remove.confirm": "Usunąć '{name}' z synchronizacji? Pobrana muzyka zostanie zachowana.",
   "settings.field.keep_removed_tracks": "Zachowaj utwory usunięte z playlist",
-  "settings.hint.keep_removed_tracks": "Gdy wyłączone, utwory znikające z playlisty Spotify są też usuwane z biblioteki podczas nocnej synchronizacji."
+  "settings.hint.keep_removed_tracks": "Gdy wyłączone, utwory znikające z playlisty Spotify są też usuwane z biblioteki podczas nocnej synchronizacji.",
+  "settings.field.youtube_cookie_upload": "Zaktualizuj pliki cookie YouTube: przeciągnij plik lub kliknij",
+  "settings.field.soundcloud_cookie_upload": "Zaktualizuj pliki cookie SoundCloud: przeciągnij plik lub kliknij",
+  "settings.cookies.uploading": "sprawdzanie …",
+  "settings.cookies.ok": "Zapisano, pliki cookie:",
+  "settings.cookies.failed": "Niepowodzenie:",
+  "settings.cookies.wrongsite": "Uwaga, te pliki cookie nie pochodzą z"
 }

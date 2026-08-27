@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import queue
 import socket
+from pathlib import Path
 
 from flask import (Flask, Response, jsonify, redirect, render_template,
                    request, session)
@@ -389,6 +391,73 @@ def create_app() -> Flask:
                     data[section][key] = val
         data["_env"] = {"docker": os.path.exists("/.dockerenv")}
         return jsonify(data)
+
+    # Cookie files are the one piece of configuration nobody can type: they are
+    # exported from a browser and have to land in the right place, with the
+    # right name and readable by the user the container runs as. Uploading them
+    # here saves a trip through the file system.
+    COOKIE_TARGETS = {
+        "youtube": ("downloads", "youtube_cookie_file", "yt-cookies.txt",
+                    "youtube.com"),
+        "soundcloud": ("downloads", "soundcloud_cookie_file", "sc-cookies.txt",
+                       "soundcloud.com"),
+    }
+
+    @app.route("/api/cookies/<kind>", methods=["POST"])
+    @auth.admin_required
+    def cookies_upload(kind):
+        target = COOKIE_TARGETS.get(kind)
+        if target is None:
+            return jsonify({"error": f"Unknown cookie type: {kind}"}), 400
+        section, key, filename, erwartet = target
+
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            return jsonify({"error": "No file received"}), 400
+
+        raw = upload.read(2 * 1024 * 1024)          # a cookie file is a few KB
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return jsonify({"error": "Not a text file"}), 400
+
+        lines = [l for l in text.splitlines() if l.strip() and not l.startswith("#")]
+        # Netscape format: seven tab-separated fields per line. Checking this
+        # here turns "downloads still fail" into "wrong file, try again".
+        if not lines or not all(len(l.split("\t")) == 7 for l in lines):
+            return jsonify({"error": "Not a Netscape cookie file"}), 400
+
+        directory = Path(cfg.path(f"{section}.{key}") or "").parent
+        if not directory or str(directory) in (".", "/"):
+            directory = Path("/config/cookies")
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / filename
+
+        if path.exists():
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            path.replace(path.with_name(f"{filename}.{stamp}.bak"))
+
+        path.write_text(text, encoding="utf-8")
+        path.chmod(0o644)
+        # Same owner as everything else under /config, so the download tools
+        # can read it whichever user the container was told to run as.
+        try:
+            reference = path.parent.stat()
+            os.chown(path, reference.st_uid, reference.st_gid)
+        except OSError:
+            pass
+
+        if cfg.path(f"{section}.{key}") != str(path):
+            cfg.save({section: {key: str(path)}})
+
+        hosts = sorted({l.split("\t")[0].lstrip(".") for l in lines})
+        # Saved either way - the file is valid, it just may be the wrong one.
+        # Exporting the cookies of the site one happens to have open is the
+        # easiest mistake to make here, and the hardest to notice later.
+        passt = any(erwartet in host for host in hosts)
+        return jsonify({"ok": True, "path": str(path), "cookies": len(lines),
+                        "hosts": hosts[:4],
+                        "warning": None if passt else erwartet})
 
     @app.route("/api/config/reset", methods=["POST"])
     @auth.admin_required

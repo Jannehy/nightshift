@@ -107,5 +107,11 @@
   "sync.noowner": "Ohne Besitzer",
   "sync.remove.confirm": "'{name}' wirklich aus dem Sync entfernen? Bereits geladene Musik bleibt erhalten.",
   "settings.field.keep_removed_tracks": "Aus Playlists entfernte Titel behalten",
-  "settings.hint.keep_removed_tracks": "Wenn aus: Songs, die aus der Spotify-Playlist verschwinden, werden beim nächtlichen Sync auch aus deiner Bibliothek gelöscht."
+  "settings.hint.keep_removed_tracks": "Wenn aus: Songs, die aus der Spotify-Playlist verschwinden, werden beim nächtlichen Sync auch aus deiner Bibliothek gelöscht.",
+  "settings.field.youtube_cookie_upload": "YouTube-Cookies aktualisieren: Datei hierher ziehen oder klicken",
+  "settings.field.soundcloud_cookie_upload": "SoundCloud-Cookies aktualisieren: Datei hierher ziehen oder klicken",
+  "settings.cookies.uploading": "wird geprüft …",
+  "settings.cookies.ok": "Übernommen, Cookies:",
+  "settings.cookies.failed": "Fehlgeschlagen:",
+  "settings.cookies.wrongsite": "Achtung, diese Cookies gehören nicht zu"
 }

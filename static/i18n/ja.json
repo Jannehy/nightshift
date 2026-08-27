@@ -107,5 +107,11 @@
   "sync.noowner": "所有者なし",
   "sync.remove.confirm": "「{name}」を同期から削除しますか？ダウンロード済みの音楽は残ります。",
   "settings.field.keep_removed_tracks": "プレイリストから削除された曲を保持",
-  "settings.hint.keep_removed_tracks": "オフにすると、Spotify のプレイリストから消えた曲は夜間同期でライブラリからも削除されます。"
+  "settings.hint.keep_removed_tracks": "オフにすると、Spotify のプレイリストから消えた曲は夜間同期でライブラリからも削除されます。",
+  "settings.field.youtube_cookie_upload": "YouTube の Cookie を更新: ファイルをドロップまたはクリック",
+  "settings.field.soundcloud_cookie_upload": "SoundCloud の Cookie を更新: ファイルをドロップまたはクリック",
+  "settings.cookies.uploading": "確認中 …",
+  "settings.cookies.ok": "保存しました。Cookie 数:",
+  "settings.cookies.failed": "失敗:",
+  "settings.cookies.wrongsite": "注意: この Cookie の取得元が違います:"
 }

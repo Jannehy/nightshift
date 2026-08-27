@@ -107,5 +107,11 @@
   "sync.noowner": "Sans propriétaire",
   "sync.remove.confirm": "Retirer '{name}' de la synchronisation ? La musique déjà téléchargée est conservée.",
   "settings.field.keep_removed_tracks": "Conserver les titres retirés des playlists",
-  "settings.hint.keep_removed_tracks": "Si désactivé, les morceaux qui disparaissent de la playlist Spotify sont aussi supprimés de ta bibliothèque lors de la synchro nocturne."
+  "settings.hint.keep_removed_tracks": "Si désactivé, les morceaux qui disparaissent de la playlist Spotify sont aussi supprimés de ta bibliothèque lors de la synchro nocturne.",
+  "settings.field.youtube_cookie_upload": "Mettre à jour les cookies YouTube : déposez un fichier ou cliquez",
+  "settings.field.soundcloud_cookie_upload": "Mettre à jour les cookies SoundCloud : déposez un fichier ou cliquez",
+  "settings.cookies.uploading": "vérification …",
+  "settings.cookies.ok": "Enregistré, cookies :",
+  "settings.cookies.failed": "Échec :",
+  "settings.cookies.wrongsite": "Attention, ces cookies ne sont pas ceux de"
 }
