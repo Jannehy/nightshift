@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import syncreg
 from .config import cfg
-from . import tagtidy
+from . import lyrics, tagtidy
 from .downloader import AUDIO_EXTS, build_ytdlp_cmd, write_m3u_for
 from .spotify import _ensure_playlist_directive, looks_unresolved
 from .logs import LiveLog, nightly_log_path
@@ -334,17 +334,18 @@ def _spelling_step(log, emit_fn, beet_cmd: list[str]) -> None:
         _log_line(log, emit_fn, f"  Genre spelling corrected: {fixed} track(s)")
 
 
-
 def _lyrics_step(log, emit_fn, new_files: list[str]):
-    if not new_files:
+    if not new_files or not cfg.nightly.fetch_lyrics:
         return
-    if not (cfg.nightly.fetch_lyrics and shutil.which("sync-lyrics-backfill")):
+    if not lyrics.available():
+        _log_line(log, emit_fn,
+                  "→ Step 2.5: Lyrics skipped - syncedlyrics not installed")
         return
     _log_line(log, emit_fn, "→ Step 2.5: Fetching lyrics for new tracks")
-    r = subprocess.run(["sync-lyrics-backfill"] + new_files,
-                       capture_output=True, text=True, timeout=1800)
-    if r.returncode != 0:
-        _log_line(log, emit_fn, "  ⚠ Lyrics fetch had errors")
+    counts = lyrics.fetch(new_files)
+    _log_line(log, emit_fn,
+              f"  {counts['synced']} synced, {counts['plain']} plain, "
+              f"{counts['missing']} without lyrics")
 
 
 def _registry_sync_step(log, emit_fn) -> tuple[int, int]:

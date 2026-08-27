@@ -18,7 +18,7 @@ import urllib.request
 from os.path import basename, dirname, getmtime, splitext
 from pathlib import Path
 
-from . import navidrome, syncreg
+from . import lyrics, navidrome, syncreg
 from .config import cfg
 from .jobs import emit, jobs
 from .logs import LiveLog, download_log_path
@@ -307,13 +307,14 @@ def _post_process(q, log: LiveLog, new_files: list[str]):
         subprocess.run(beet_cmd + ["write"] + new_files,
                        capture_output=True, text=True, timeout=300)
 
-    if cfg.nightly.fetch_lyrics and shutil.which("sync-lyrics-backfill"):
+    if cfg.nightly.fetch_lyrics and lyrics.available():
         emit(q, "status",
              message=f"Fetching lyrics ({len(new_files)} tracks) …",
              progress=96)
         log.write(f"Fetching lyrics ({len(new_files)} tracks) …")
-        subprocess.run(["sync-lyrics-backfill"] + new_files,
-                       capture_output=True, text=True, timeout=1800)
+        counts = lyrics.fetch(new_files)
+        log.write(f"Lyrics: {counts['synced']} synced, {counts['plain']} plain, "
+                  f"{counts['missing']} without")
 
 
 def _ensure_playlist_directive(m3u_path: str, title: str):
