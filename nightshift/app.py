@@ -14,7 +14,8 @@ import socket
 from flask import (Flask, Response, jsonify, redirect, render_template,
                    request, session)
 
-from . import __version__, auth, navidrome, nightly, scheduler, syncreg
+from . import (__version__, auth, beetsconf, navidrome, nightly, scheduler,
+               syncreg)
 from .config import DEFAULTS, cfg
 from .downloader import run_ytdlp_download
 from .jobs import enqueue, jobs, new_job, queue_status
@@ -425,6 +426,8 @@ def create_app() -> Flask:
 
 def main():
     app = create_app()
+    if cfg.beets.enabled:
+        beetsconf.ensure()
     if cfg.exists:
         scheduler.start()
     from waitress import serve

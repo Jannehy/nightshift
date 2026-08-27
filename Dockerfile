@@ -4,9 +4,11 @@
 # ============================================================
 FROM python:3.12-slim
 
-# System dependencies
+# System dependencies. libchromaprint-tools provides fpcalc, which the
+# optional beets chroma plugin needs to identify a file by its sound.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg curl unzip gosu tzdata ca-certificates \
+        libchromaprint-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # deno – solves YouTube's JS challenges for yt-dlp.

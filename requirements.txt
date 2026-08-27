@@ -10,5 +10,12 @@ spotdl>=4.2
 # Bump with:  pip index versions yt-dlp --pre | head -1
 yt-dlp==2026.8.18.122307.dev0
 beets>=2.0
+# Beets plugins are optional imports: without these the plugin simply refuses
+# to load and the tagging step silently does less than it says it does.
+# pylast     -> lastgenre (genre whitelist)
+# pyacoustid -> chroma (acoustic fingerprints, used for loose single files;
+#               needs the fpcalc binary from libchromaprint-tools as well)
+pylast>=5.2
+pyacoustid>=1.3
 waitress>=3.0
 tzdata>=2024.1
