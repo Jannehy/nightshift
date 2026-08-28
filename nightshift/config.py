@@ -75,6 +75,16 @@ DEFAULTS: dict = {
         "import_retries": 20,
         "import_retry_delay": 3,
     },
+    "notifications": {
+        # A full ntfy topic URL, e.g. https://ntfy.sh/my-nightshift. Empty
+        # disables sending entirely; nothing is contacted unless it is set.
+        "ntfy_url": "",
+        # Optional bearer token for a protected topic.
+        "ntfy_token": "",
+        # How many days before a cookie file expires the warning starts.
+        "cookie_warn_days": 14,
+        "notify_cookies": True,
+    },
     "logging": {
         "dir": "/config/logs",
     },

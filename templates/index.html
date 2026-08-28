@@ -74,6 +74,15 @@
       </div>
     </section>
 
+    <!-- Cookie warning: silent expiry is the failure mode here -->
+    <section class="card notice" id="cookie-notice" style="display:none">
+      <span class="notice-icon" aria-hidden="true">!</span>
+      <div>
+        <strong id="cookie-notice-title"></strong>
+        <p class="hint" id="cookie-notice-text"></p>
+      </div>
+    </section>
+
     <!-- Nightly card -->
     <section class="card">
       <h2 data-i18n="nightly.title">Nightly-Sync</h2>
@@ -94,11 +103,13 @@
     </section>
 
     <!-- Console -->
-    <section class="console" id="log-card">
-      <div class="console-head">
+    <section class="console collapsed" id="log-card">
+      <button class="console-head" id="log-toggle" type="button" aria-expanded="false">
+        <span class="console-caret" aria-hidden="true">▸</span>
         <span data-i18n="console.title">Konsole</span>
+        <span class="console-summary" id="log-summary"></span>
         <span id="log-count">0</span>
-      </div>
+      </button>
       <div class="console-body" id="log"></div>
     </section>
   </main>
@@ -159,12 +170,75 @@
       urlInput.addEventListener("input", updateSourcePills);
       $("owner").addEventListener("change", refreshGates);
 
+      // ---- Cookie expiry ----
+      // Cookies die without a sound: downloads that need a signed-in session
+      // come back censored or not at all, and nothing says why. So the page
+      // says it, before the next nightly run runs into it.
+      async function checkCookies() {
+        let data;
+        try { data = await NS.api("/api/cookies/status"); }
+        catch (e) { return; }
+        const bad = (data.cookies || []).filter((c) =>
+          ["signed_out", "expired", "soon"].includes(c.state));
+        if (!bad.length) return;
+        const box = $("cookie-notice");
+        // A session the site no longer honours is the urgent one; a date in
+        // the future is only a heads-up.
+        const urgent = bad.filter((c) => c.state !== "soon");
+        const worst = urgent.length ? urgent[0] : bad[0];
+        $("cookie-notice-title").textContent = NS.t(
+          worst.state === "signed_out" ? "cookies.signedout.title"
+          : worst.state === "expired" ? "cookies.expired.title"
+          : "cookies.soon.title");
+        $("cookie-notice-text").textContent = bad.map((c) =>
+          c.state === "signed_out"
+            ? NS.t("cookies.signedout.line").replace("{kind}", c.kind)
+          : c.state === "expired"
+            ? NS.t("cookies.expired.line").replace("{kind}", c.kind)
+            : NS.t("cookies.soon.line").replace("{kind}", c.kind)
+                                       .replace("{n}", Math.round(c.days_left))
+        ).join(" · ") + " — " + NS.t("cookies.hint");
+        box.classList.toggle("danger", urgent.length > 0);
+        box.style.display = "flex";
+      }
+      checkCookies();
+
       // ---- Console ----
       function classify(line) {
         if (/✓|DONE|FERTIG/.test(line)) return "ok";
+        // A track the catalogue does not have is an outcome, not a failure.
+        // Counting it as an error made a finished run look broken.
+        if (/no results found|LookupError|could not be downloaded/i.test(line))
+          return "warn";
+        // "Playlists failed: 0" is a statistic, not a failure — the word
+        // alone must not colour the line or count towards the summary.
+        if (/^[^:]{1,40}:\s*\d+\s*$/.test(line.replace(/^[\s•\-]+/, "")))
+          return "";
         if (/✗|⚠|FAILED|FEHLER|Error/i.test(line)) return "err";
         return "";
       }
+      let errCount = 0, missCount = 0, finished = false;
+      function renderSummary() {
+        // Collapsed, the console has to answer two questions on its own:
+        // is it done, and did anything go wrong.
+        const parts = [];
+        parts.push(NS.t(finished ? "console.done" : "console.running"));
+        if (errCount) {
+          parts.push(NS.t(errCount === 1 ? "console.error.one"
+                                         : "console.error.many")
+                       .replace("{n}", errCount));
+        }
+        if (missCount) {
+          parts.push(NS.t(missCount === 1 ? "console.missing.one"
+                                          : "console.missing.many")
+                       .replace("{n}", missCount));
+        }
+        const summary = $("log-summary");
+        summary.textContent = parts.join(" · ");
+        summary.classList.toggle("has-err", errCount > 0);
+        summary.classList.toggle("has-miss", errCount === 0 && missCount > 0);
+      }
+      document.addEventListener("ns:lang", renderSummary);
       function addLog(line) {
         const el = document.createElement("div");
         el.className = classify(line);
@@ -172,6 +246,9 @@
         log.appendChild(el);
         log.scrollTop = log.scrollHeight;
         $("log-count").textContent = ++lineCount;
+        if (el.className === "err") { errCount++; }
+        if (el.className === "warn") { missCount++; }
+        renderSummary();
       }
       let statusKey = null, statusN = null;
       function renderStatus() {
@@ -194,6 +271,7 @@
       }
       function reset() {
         log.innerHTML = ""; lineCount = 0;
+        errCount = 0; missCount = 0; finished = false; renderSummary();
         card.classList.remove("done", "err");
         statusKey = null; statusN = null;
         bar.classList.remove("indet");
@@ -209,6 +287,19 @@
         card.classList.add("active");
         logCard.style.display = "block";
       }
+
+      const toggle = $("log-toggle");
+      function setOpen(open) {
+        logCard.classList.toggle("collapsed", !open);
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        toggle.querySelector(".console-caret").textContent = open ? "▾" : "▸";
+        if (open) { log.scrollTop = log.scrollHeight; }
+      }
+      // Always starts closed: the summary line is what a run needs to say, and
+      // a console left open once should not follow the user around forever.
+      setOpen(false);
+      toggle.addEventListener("click", () =>
+        setOpen(logCard.classList.contains("collapsed")));
 
       // ---- Real progress parsed from the log ----
       function progressFromLog(text) {
@@ -260,9 +351,11 @@
         if (data.finished) {
           card.classList.add("done");
           setProgress(100, "common.done");
+          finished = true; renderSummary();
         } else if (data.failed) {
           card.classList.add("err");
           setProgress(100, "common.error");
+          finished = true; renderSummary();
         }
         setBusy(false);
         nightlyBtn.textContent = NS.t("nightly.start");
@@ -352,8 +445,10 @@
           poll(endpoint, finishState);
         } else if (data.finished) {
           card.classList.add("done"); setProgress(100, "common.done");
+          finished = true; renderSummary();
         } else if (data.failed) {
           card.classList.add("err"); setProgress(100, "common.error");
+          finished = true; renderSummary();
         }
       }
       (async () => {

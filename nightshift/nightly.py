@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from collections import deque
+import re
 import shutil
 import signal
 import subprocess
@@ -22,7 +23,7 @@ from pathlib import Path
 
 from . import syncreg
 from .config import cfg
-from . import lyrics, tagtidy
+from . import cookies, lyrics, notify, tagtidy
 from .downloader import AUDIO_EXTS, build_ytdlp_cmd, write_m3u_for
 from .spotify import _ensure_playlist_directive, looks_unresolved
 from .logs import LiveLog, nightly_log_path
@@ -95,6 +96,8 @@ def run_nightly(emit_fn=None) -> bool:
         ts_file.parent.mkdir(parents=True, exist_ok=True)
         ts_file.write_text(str(time.time()))
 
+        _cookie_step(log, emit_fn)
+
         _log_line(log, emit_fn, "═══ Done ═══")
         _log_line(log, emit_fn, f"  Spotify playlists:    {playlists_synced}")
         _log_line(log, emit_fn, f"  SC/YT playlists:      {reg_synced}")
@@ -103,6 +106,9 @@ def run_nightly(emit_fn=None) -> bool:
         _log_line(log, emit_fn, f"  New tracks (SC/YT):   {reg_new}")
 
         ok = total_failed == 0
+        # summarise() also runs inside finish()/fail(); calling it here with the
+        # emitter is what puts the block in front of someone watching live.
+        log.summarise(emit_fn)
         if ok:
             log.finish("Nightly sync completed")
         else:
@@ -121,11 +127,38 @@ _NOISE = ("Processed", "Skipping", "AudioProviderError:",
           "Downloading:", "\rDownloaded")
 
 
+# spotDL prints a framed Python traceback when a request fails. Twelve lines of
+# box drawing say no more than the one line naming the exception, and in a log
+# that is read at a glance they bury everything around them.
+_FRAME = re.compile(r"^[│╭╰╯┌└─┃┏┗❱|]|^\s*\d+\s*│")
+_EXCEPTION = re.compile(r"^[A-Za-z_.]*(Error|Exception)\b.*")
+
+
 def _is_spotdl_noise(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return True
+    if _FRAME.search(stripped):
+        return True
     return any(stripped.startswith(n) for n in ("Processed ",))
+
+
+def _failure_reason(lines) -> str:
+    """The one line worth showing from a failed attempt.
+
+    spotDL ends its traceback with the exception and its message - that is the
+    sentence a person can act on. Everything above it is the frame it happened
+    in, which matters to whoever debugs spotDL, not to whoever runs it.
+    """
+    for line in reversed(list(lines)):
+        stripped = line.strip()
+        if _EXCEPTION.match(stripped):
+            return stripped[:160]
+    for line in reversed(list(lines)):
+        stripped = line.strip()
+        if stripped:
+            return stripped[:160]
+    return ""
 
 
 def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
@@ -206,14 +239,15 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
                     success = True
                     break
                 if timed_out or rc in (-9, 137):
-                    _log_line(log, emit_fn, "    Last output before the timeout:")
-                    for t in list(tail)[-8:]:
-                        _log_line(log, emit_fn, f"      | {t}")
+                    reason = _failure_reason(tail)
+                    if reason:
+                        _log_line(log, emit_fn, f"    Last output: {reason}")
                     raise subprocess.TimeoutExpired(
                         cmd, int(cfg.nightly.sync_timeout_seconds))
-                _log_line(log, emit_fn, f"    ⚠ Attempt {attempt} failed (exit {rc})")
-                for t in list(tail)[-8:]:
-                    _log_line(log, emit_fn, f"      | {t}")
+                reason = _failure_reason(tail)
+                _log_line(log, emit_fn,
+                          f"    ⚠ Attempt {attempt} failed (exit {rc})"
+                          + (f": {reason}" if reason else ""))
             except subprocess.TimeoutExpired:
                 _log_line(log, emit_fn,
                           f"    ⚠ Attempt {attempt} timeout "
@@ -248,6 +282,82 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
     return synced, failed, new_total
 
 
+def _cookie_step(log, emit_fn) -> None:
+    """Checks whether the cookie files still sign in, and says so once.
+
+    The expiry stamps in a cookie file are close to useless as a warning:
+    a file whose login cookie claimed 294 days left was already being turned
+    away after six, because Google revokes sessions long before the dates run
+    out. So the check actually uses the cookies and asks the site. The dates
+    stay as a secondary signal - some services really do age out on schedule.
+
+    A push message goes out when the state changes, and again after a week if
+    nothing was done. A nightly job that repeats the same warning every night
+    teaches people to ignore it.
+    """
+    try:
+        cookies.refresh()          # one request per site, once a night
+        entries = cookies.all_status()
+    except Exception:
+        return
+
+    pending = [e for e in entries
+               if e["state"] in ("signed_out", "expired", "missing", "soon")]
+    for entry in pending:
+        if entry["state"] == "signed_out":
+            text = f"{entry['kind']}: cookies are no longer signed in"
+        elif entry["state"] == "expired":
+            text = f"{entry['kind']}: cookies expired"
+        elif entry["state"] == "missing":
+            text = f"{entry['kind']}: cookie file not found"
+        else:
+            text = (f"{entry['kind']}: cookies expire in "
+                    f"{entry['days_left']:.0f} day(s)")
+        _log_line(log, emit_fn, f"  ⚠ {text}")
+
+        if (getattr(cfg.notifications, "notify_cookies", True)
+                and notify.enabled() and cookies.should_notify(entry)):
+            if notify.send("Nightshift: cookies", text,
+                           priority="high", tags="warning"):
+                cookies.mark_notified(entry)
+
+    # Say so when a replacement worked, otherwise the last word on the subject
+    # stays a warning that is no longer true.
+    for entry in entries:
+        if cookies.recovered(entry):
+            text = f"{entry['kind']}: cookies work again"
+            _log_line(log, emit_fn, f"  {text}")
+            if (getattr(cfg.notifications, "notify_cookies", True)
+                    and notify.enabled()):
+                notify.send("Nightshift: cookies", text, tags="white_check_mark")
+            cookies.mark_notified(entry)
+
+
+def _last_line(text: str) -> str:
+    """The last line worth showing from a command's output."""
+    for line in reversed((text or "").splitlines()):
+        line = line.strip()
+        if line:
+            return line[:200]
+    return ""
+
+
+def _modified_after(path: Path, stamp: float) -> bool:
+    try:
+        return path.stat().st_mtime > stamp
+    except OSError:
+        return False
+
+
+def _known_to_beets(beet_cmd: list[str]) -> set[str] | None:
+    """Every file path the beets library holds, or None if it cannot be read."""
+    r = subprocess.run(beet_cmd + ["ls", "-f", "$path"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return {line.strip() for line in r.stdout.splitlines() if line.strip()}
+
+
 def _beets_step(log, emit_fn, prev_ts: float, new_tracks: int) -> list[str]:
     _log_line(log, emit_fn, "→ Step 2: Tagging new tracks with Beets")
     if new_tracks <= 0:
@@ -257,25 +367,31 @@ def _beets_step(log, emit_fn, prev_ts: float, new_tracks: int) -> list[str]:
         _log_line(log, emit_fn, "  Beets disabled or not installed - skipped")
         return []
 
+    beet_cmd = ["beet"]
+    if cfg.beets.config_file:
+        beet_cmd += ["-c", cfg.beets.config_file]
+
     exclude = (Path(cfg.soundcloud_path), Path(cfg.youtube_path))
     spotify_ext = f".{cfg.downloads.spotify_format}"
-    new_files = []
-    for p in Path(cfg.library.music_root).rglob(f"*{spotify_ext}"):
-        if any(str(p).startswith(str(ex)) for ex in exclude):
-            continue
-        try:
-            if p.stat().st_mtime > prev_ts:
-                new_files.append(str(p))
-        except FileNotFoundError:
-            pass
+    on_disk = [p for p in Path(cfg.library.music_root).rglob(f"*{spotify_ext}")
+               if not any(str(p).startswith(str(ex)) for ex in exclude)]
+
+    # What beets has not seen is what needs importing. The modification time
+    # used to decide this, which made every mass tag rewrite - a genre pass, a
+    # beet write - look like a library full of new files and sent the whole
+    # collection through the importer again. Beets knows exactly what it holds;
+    # asking it costs one query and cannot drift.
+    known = _known_to_beets(beet_cmd)
+    if known is None:
+        _log_line(log, emit_fn, "  Beets library unreadable - falling back to timestamps")
+        new_files = [str(p) for p in on_disk
+                     if _modified_after(p, prev_ts)]
+    else:
+        new_files = [str(p) for p in on_disk if str(p) not in known]
 
     _log_line(log, emit_fn, f"  Found {len(new_files)} new files for tagging")
     if not new_files:
         return []
-
-    beet_cmd = ["beet"]
-    if cfg.beets.config_file:
-        beet_cmd += ["-c", cfg.beets.config_file]
 
     new_dirs = sorted({str(Path(f).parent) for f in new_files})
     _log_line(log, emit_fn, f"  Importing {len(new_dirs)} album folder(s)")
@@ -284,7 +400,13 @@ def _beets_step(log, emit_fn, prev_ts: float, new_tracks: int) -> list[str]:
         r = subprocess.run(beet_cmd + ["import", "-A", d],
                            capture_output=True, text=True)
         if r.returncode != 0:
-            _log_line(log, emit_fn, "    ⚠ import error")
+            # Say what beets said. "import error" on its own hid a duplicate
+            # prompt for weeks: the run failed every night and the log never
+            # named a reason anyone could act on.
+            detail = _last_line(r.stderr) or _last_line(r.stdout)
+            _log_line(log, emit_fn,
+                      f"    ⚠ import error: {detail}" if detail
+                      else "    ⚠ import error")
 
     _log_line(log, emit_fn, "  Running beet write...")
     r = subprocess.run(beet_cmd + ["write", "mb_trackid:^.+$"],

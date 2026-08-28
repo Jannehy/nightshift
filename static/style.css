@@ -152,7 +152,50 @@ input[type="text"], input[type="password"], input[type="number"], select {
 input:focus, select:focus { border-color: var(--accent); }
 .field { margin-bottom: 1.1rem; }
 
-/* Ablagefeld fuer Cookie-Dateien: klickbar und als Ziel zum Hineinziehen. */
+/* The console is collapsed by default: folded away, its header answers the two
+   questions that matter while something runs - is it still going, and did
+   anything fail. The lines themselves are for whoever wants to read them. */
+.console-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.console-caret { color: var(--ink-faint); font-size: 0.8rem; }
+.console-summary { flex: 1; color: var(--ink-dim); font-size: 0.82rem; }
+.console-summary.has-err { color: var(--err); }
+.console-summary.has-miss { color: var(--accent); }
+.console.collapsed .console-body { display: none; }
+
+/* A standing notice, for things that stay wrong until someone acts. */
+.card.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  border-color: var(--accent);
+}
+.card.notice.danger { border-color: var(--err); }
+.notice-icon {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.card.notice.danger .notice-icon { background: var(--err); color: #fff; }
+.card.notice .hint { margin-top: 0.2rem; }
+
+/* Drop zone for cookie files: clickable, and a target to drop onto. */
 .dropzone {
   border: 1px dashed var(--line);
   border-radius: var(--radius);
@@ -251,6 +294,7 @@ button.ghost:hover { border-color: var(--accent); color: var(--ink); }
 }
 .console-body .ok { color: var(--ok); }
 .console-body .err { color: var(--err); }
+.console-body .warn { color: var(--accent); }
 
 /* ---------- Progress ---------- */
 .progress-wrap { display: none; }

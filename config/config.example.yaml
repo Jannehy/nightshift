@@ -74,6 +74,17 @@ navidrome:
   import_retries: 20
   import_retry_delay: 3
 
+notifications:
+  # Push messages via ntfy. A full topic URL, e.g. https://ntfy.sh/my-nightshift
+  # Empty disables sending entirely; nothing is contacted unless it is set.
+  ntfy_url: ""
+  # Bearer token, only needed for a protected topic
+  ntfy_token: ""
+  # Send a push when a cookie file has signed out or is about to expire
+  notify_cookies: true
+  # How many days before the expiry date the warning starts
+  cookie_warn_days: 14
+
 logging:
   # Log directory (inside the container: /config/logs)
   dir: "/config/logs"

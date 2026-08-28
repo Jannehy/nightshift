@@ -19,6 +19,8 @@ from os.path import basename, dirname, getmtime, splitext
 from pathlib import Path
 
 from . import lyrics, navidrome, syncreg
+from mutagen.id3 import ID3, TPOS
+
 from .config import cfg
 from .jobs import emit, jobs
 from .logs import LiveLog, download_log_path
@@ -78,6 +80,22 @@ def playlist_title(url: str) -> str | None:
         return title or None
     except Exception:
         return None
+
+
+def visible_name(title: str, url: str = "") -> str:
+    """A playlist name a media server will actually see.
+
+    A name beginning with a dot makes the file a hidden one on Unix, and every
+    media server skips those: the tracks arrive, the playlist never appears and
+    nothing in the log says why. Spotify allows such names - a playlist called
+    "." is what brought this to light - so the leading dots come off here, and
+    a name that is nothing but dots falls back to the playlist's own id.
+    """
+    cleaned = (title or "").strip().lstrip(".").strip()
+    if cleaned:
+        return cleaned
+    ident = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+    return f"Playlist {ident}" if ident else "Playlist"
 
 
 def looks_unresolved(name: str) -> bool:
@@ -152,6 +170,13 @@ def run_spotify_download(job_id: str, url: str,
         if "playlist" in url:
             pl_title = playlist_title(url)
             if pl_title:
+                usable = visible_name(pl_title, url)
+                if usable != pl_title:
+                    notice = (f"Playlist name '{pl_title}' would make a hidden "
+                               f"file; using '{usable}' instead")
+                    emit(q, "log", line=notice)
+                    log.write(notice)
+                    pl_title = usable
                 pl_unique = syncreg.resolve_playlist_name(pl_title, url)
 
         prev_m3us = {}
@@ -277,6 +302,8 @@ def run_spotify_download(job_id: str, url: str,
                 emit(q, "log", line=f"  • {t}")
                 log.write(f"  • {t}")
 
+        log.summarise(lambda line: emit(q, "log", line=line))
+
         done_msg = f"Done! {done} tracks processed."
         if failed_tracks:
             done_msg += f" ({len(failed_tracks)} failed)"
@@ -288,8 +315,93 @@ def run_spotify_download(job_id: str, url: str,
         emit(q, "error", message=str(e))
 
 
+def fix_disc_numbers(paths: list[str]) -> list[tuple[str, str, str]]:
+    """Puts the right disc number on tracks of a multi-disc album.
+
+    Spotify's single-track endpoint answers disc_number 1 for every track,
+    whichever disc it is really on; only the album's own track list has it
+    right. spotDL writes what it is handed, so a track from disc 2 arrives
+    labelled 1/2 and the media server files it under the wrong disc.
+
+    Only albums that really have more than one disc are looked up, and each
+    album is fetched once - an ordinary download makes no extra request at
+    all. A failed lookup leaves the file alone: a wrong disc number is better
+    than a failed download.
+    """
+    fixed: list[tuple[str, str, str]] = []
+    candidates = []
+    for path in paths:
+        try:
+            tags = ID3(path)
+        except Exception:
+            continue
+        position, source = tags.get("TPOS"), tags.get("WOAS")
+        if position is None or source is None or not position.text:
+            continue
+        current = str(position.text[0])
+        total = current.split("/")[-1]
+        if not total.isdigit() or int(total) < 2:
+            continue                     # single-disc album, nothing to check
+        candidates.append((path, tags, current, total, str(source.url)))
+
+    if not candidates:
+        return fixed
+
+    try:
+        from spotdl.utils.config import DEFAULT_CONFIG
+        from spotdl.utils.spotify import SpotifyClient
+        SpotifyClient.init(client_id=DEFAULT_CONFIG["client_id"],
+                           client_secret=DEFAULT_CONFIG["client_secret"],
+                           user_auth=False, cache_path=None, no_cache=True)
+        spotify = SpotifyClient()
+    except Exception:
+        return fixed
+
+    albums: dict[str, dict[str, int]] = {}
+
+    def discs_of(album_id: str) -> dict[str, int]:
+        if album_id not in albums:
+            mapping, offset = {}, 0
+            while True:
+                page = spotify.album_tracks(album_id, limit=50, offset=offset)
+                for item in page.get("items", []):
+                    mapping[item["id"]] = item.get("disc_number", 1)
+                if not page.get("next"):
+                    break
+                offset += 50
+            albums[album_id] = mapping
+        return albums[album_id]
+
+    for path, tags, current, total, url in candidates:
+        try:
+            track_id = url.split("/track/")[-1].split("?")[0]
+            album_id = spotify.track(url)["album"]["id"]
+            correct = discs_of(album_id).get(track_id)
+        except Exception:
+            continue
+        if not correct:
+            continue
+        wanted = f"{correct}/{total}"
+        if wanted == current:
+            continue
+        tags.setall("TPOS", [TPOS(encoding=3, text=[wanted])])
+        try:
+            tags.save(path, v2_version=3)
+        except Exception:
+            continue
+        fixed.append((path, current, wanted))
+
+    return fixed
+
+
 def _post_process(q, log: LiveLog, new_files: list[str]):
     """Beets import, beet write and optional lyrics for new Spotify files."""
+    corrected = fix_disc_numbers(new_files)
+    if corrected:
+        line = f"Disc numbers corrected: {len(corrected)} track(s)"
+        emit(q, "log", line=line)
+        log.write(line)
+
     if cfg.beets.enabled and shutil.which("beet"):
         new_dirs = sorted({dirname(f) for f in new_files})
         msg = f"Beets: importing {len(new_dirs)} album folder(s) …"
@@ -356,7 +468,7 @@ def _handle_playlist(q, log: LiveLog, url: str,
     newest = max(m3us, key=getmtime)
     # The title fetched before the download wins; the file name is only a
     # fallback and may still carry an unresolved spotDL placeholder.
-    pl_title = known_title or splitext(basename(newest))[0]
+    pl_title = visible_name(known_title or splitext(basename(newest))[0], url)
 
     if looks_unresolved(pl_title):
         msg = ("Could not determine the playlist name — the tracks were "

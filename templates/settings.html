@@ -12,7 +12,13 @@
       backdrop-filter: blur(10px);
       border-top: 1px solid var(--line);
     }
-    .user-form { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+    /* The list drops its last divider so it does not end on a dangling line -
+       but the form below is a separate thing and needs the separation back. */
+    .user-form {
+      display: flex; gap: 0.6rem; flex-wrap: wrap;
+      margin-top: 0; padding-top: 1rem;
+      border-top: 1px solid var(--line);
+    }
     .user-form input, .user-form select { flex: 1; min-width: 130px; }
     .role-tag { font-size: 0.7rem; }
   </style>
@@ -98,6 +104,14 @@
           ["enabled", "check", "settings.field.beets_enabled"],
           ["config_file", "text", "settings.field.beets_config"],
         ]],
+        ["notifications", "settings.section.notifications", [
+          ["ntfy_url", "text", "settings.field.ntfy_url", null,
+           "settings.hint.ntfy_url"],
+          ["ntfy_token", "password", "settings.field.ntfy_token"],
+          ["notify_cookies", "check", "settings.field.notify_cookies"],
+          ["cookie_warn_days", "number", "settings.field.cookie_warn_days", null,
+           "settings.hint.cookie_warn_days"],
+        ]],
         ["navidrome", "settings.section.navidrome", [
           ["enabled", "check", "settings.field.nd_enabled"],
           ["url", "text", "settings.field.nd_url"],
@@ -142,6 +156,16 @@
             zone.classList.add("ok");
             status.textContent =
               `${NS.t("settings.cookies.ok")} ${data.cookies} · ${data.hosts.join(", ")}`;
+            // Whether the cookies actually sign in is the one thing worth
+            // knowing right now - a valid file with a dead session looks
+            // exactly like a good one.
+            if (data.signed_in === true) {
+              status.textContent += ` · ${NS.t("settings.cookies.signedin")}`;
+            } else if (data.signed_in === false) {
+              zone.classList.remove("ok");
+              status.style.color = "var(--err)";
+              status.textContent += ` · ${NS.t("settings.cookies.signedout")}`;
+            }
             if (data.warning) {
               zone.classList.remove("ok");
               status.style.color = "var(--accent)";

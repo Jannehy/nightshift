@@ -29,6 +29,9 @@ folder of audio files.
   imports and tags new files
 - **Navidrome integration (optional)** – downloaded playlists can be made
   public or assigned to a specific Navidrome user
+- **Cookie watch** – Nightshift checks whether the YouTube and SoundCloud
+  cookies it was given are still signed in, warns on the start page and can
+  send a push, so a dead cookie file does not cost you a night
 - **Multi-user** – admin and regular accounts; only admins see settings
 - **Setup wizard** – first run walks you through admin account, library path
   and options; no config file editing required
@@ -150,6 +153,24 @@ Highlights:
 | `downloads.youtube_cookie_file` | Netscape-format cookies for age-restricted YouTube content |
 | `navidrome.*` | Optional Navidrome connection for playlist visibility/ownership |
 | `beets.enabled` | Toggle beets tagging |
+| `notifications.ntfy_url` | ntfy topic for push messages, e.g. cookie warnings (empty = off) |
+
+### Cookies that sign out
+
+YouTube and SoundCloud hand out cookie files that stop working long before the
+expiry dates inside them run out — the file still looks valid, the session
+behind it is gone. Nightshift therefore does not trust the dates: once a day it
+fetches the site with the cookie jar and looks at whether the answer still says
+it is logged in.
+
+If it is not, the start page says so — in the browser and in both apps — and,
+with `notifications.ntfy_url` set, a push goes out. The reminder repeats weekly
+rather than nightly, and stops on its own once a working file is in place.
+
+New cookies go in under **Settings → Cookies**: drop the exported file on the
+matching box. Nightshift checks that it really is a Netscape cookie file, keeps
+a timestamped copy of the old one, and tests the new file immediately, so the
+page tells you straight away whether it worked.
 
 ### Multiple artists per track in Navidrome
 
@@ -234,7 +255,13 @@ Every night (schedule configurable) Nightshift:
 2. Tags new files with beets (if enabled)
 3. Re-syncs all SoundCloud/YouTube sync playlists via yt-dlp and rewrites
    their m3u8 files
-4. Logs a per-source summary (playlists synced, new tracks)
+4. Tidies the genre tags those two sources bring along, so only genres from
+   the whitelist survive
+5. Checks the cookie files and, if one has signed out, says so in the log and
+   sends a push
+6. Logs a per-source summary (playlists synced, new tracks) and repeats every
+   error and every track it could not find, so the outcome is readable without
+   scrolling back through the run
 
 Large playlists that hit rate limits are cut off by the timeout and simply
 continue the next night until they are complete.

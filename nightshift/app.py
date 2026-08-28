@@ -16,8 +16,8 @@ from pathlib import Path
 from flask import (Flask, Response, jsonify, redirect, render_template,
                    request, session)
 
-from . import (__version__, auth, beetsconf, navidrome, nightly, scheduler,
-               syncreg)
+from . import (__version__, auth, beetsconf, cookies, navidrome, nightly,
+               notify, scheduler, syncreg)
 from .config import DEFAULTS, cfg
 from .downloader import run_ytdlp_download
 from .jobs import enqueue, jobs, new_job, queue_status
@@ -376,7 +376,7 @@ def create_app() -> Flask:
     # ------------------------------------------------------------------
     # Config API (admin only)
     # ------------------------------------------------------------------
-    SECRET_KEYS = {("navidrome", "password")}
+    SECRET_KEYS = {("navidrome", "password"), ("notifications", "ntfy_token")}
 
     @app.route("/api/config", methods=["GET"])
     @auth.admin_required
@@ -402,6 +402,17 @@ def create_app() -> Flask:
         "soundcloud": ("downloads", "soundcloud_cookie_file", "sc-cookies.txt",
                        "soundcloud.com"),
     }
+
+    @app.route("/api/cookies/status")
+    @auth.login_required
+    def cookies_status():
+        """How long the cookie files are still good for.
+
+        Everyone may ask: a warning about expiring cookies is of no use if
+        only an admin ever sees it, and the answer holds no secrets - a path,
+        a date and a count.
+        """
+        return jsonify({"cookies": cookies.all_status()})
 
     @app.route("/api/cookies/<kind>", methods=["POST"])
     @auth.admin_required
@@ -450,13 +461,17 @@ def create_app() -> Flask:
         if cfg.path(f"{section}.{key}") != str(path):
             cfg.save({section: {key: str(path)}})
 
+        # Check the new file straight away: whether cookies actually sign in
+        # is the only thing the user wants to know at this moment.
+        signed_in = cookies.refresh(kind).get(kind, {}).get("signed_in")
+
         hosts = sorted({l.split("\t")[0].lstrip(".") for l in lines})
         # Saved either way - the file is valid, it just may be the wrong one.
         # Exporting the cookies of the site one happens to have open is the
         # easiest mistake to make here, and the hardest to notice later.
         passt = any(erwartet in host for host in hosts)
         return jsonify({"ok": True, "path": str(path), "cookies": len(lines),
-                        "hosts": hosts[:4],
+                        "hosts": hosts[:4], "signed_in": signed_in,
                         "warning": None if passt else erwartet})
 
     @app.route("/api/config/reset", methods=["POST"])
