@@ -211,9 +211,12 @@
         if (/no results found|LookupError|could not be downloaded/i.test(line))
           return "warn";
         // "Playlists failed: 0" is a statistic, not a failure — the word
-        // alone must not colour the line or count towards the summary.
-        if (/^[^:]{1,40}:\s*\d+\s*$/.test(line.replace(/^[\s•\-]+/, "")))
-          return "";
+        // alone must not colour the line or count towards the summary. The
+        // timestamp in front brings colons of its own, so it has to go first
+        // or the line never reads as "label: number".
+        const body = line.replace(/^[\s•\-]*\[[^\]]*\]\s*/, "")
+                         .replace(/^[\s•\-]+/, "");
+        if (/^[^:]{1,40}:\s*\d+\s*$/.test(body)) return "";
         if (/✗|⚠|FAILED|FEHLER|Error/i.test(line)) return "err";
         return "";
       }
