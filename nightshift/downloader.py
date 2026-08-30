@@ -140,7 +140,8 @@ def run_ytdlp_download(job_id: str, url: str,
 
         set_folder = None
         if is_set:
-            set_folder = syncreg.resolve_set_folder(title or "playlist", url)
+            set_folder = syncreg.resolve_set_folder(title or "playlist", url,
+                                                    base_dir, owner_id)
             template = f"{base_dir}/{set_folder}/%(playlist_index)02d - %(title)s.%(ext)s"
             msg = f"Playlist/set detected: {title} ({total} tracks)"
             if set_folder != (title or ""):
@@ -232,7 +233,9 @@ def run_ytdlp_download(job_id: str, url: str,
                 emit(q, "status",
                      message="Navidrome: applying playlist visibility ...",
                      progress=95)
-                ok, m = navidrome.apply_playlist_settings(title, owner_id)
+                ok, m = navidrome.apply_playlist_settings(
+                    title, owner_id,
+                    path=f"{base_dir}/{set_folder}/{set_folder}.m3u8")
                 emit(q, "log", line=m)
                 log.write(m)
 

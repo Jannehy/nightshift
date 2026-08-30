@@ -28,7 +28,10 @@ folder of audio files.
 - **Tagging built in** – optional [beets](https://beets.io/) integration
   imports and tags new files
 - **Navidrome integration (optional)** – downloaded playlists can be made
-  public or assigned to a specific Navidrome user
+  public or assigned to a specific Navidrome user, and no download overwrites
+  a playlist that belongs to somebody else: Spotify hands every account its
+  own "Daily Mix 3", so the second one is filed as `Daily Mix 3 (2)` and still
+  shows up under its real title
 - **Cookie watch** – Nightshift checks whether the YouTube and SoundCloud
   cookies it was given are still signed in, warns on the start page and can
   send a push, so a dead cookie file does not cost you a night

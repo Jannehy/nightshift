@@ -314,7 +314,8 @@ def create_app() -> Flask:
         name = syncreg.display_name_of(url, filename) or ""
         nd_ok, nd_msg = (True, "")
         if name:
-            nd_ok, nd_msg = navidrome.set_visibility(name, public)
+            nd_ok, nd_msg = navidrome.set_visibility(
+                name, public, syncreg.file_path_of(url, filename))
         return jsonify({"ok": True, "navidrome_ok": nd_ok,
                         "navidrome": nd_msg})
 

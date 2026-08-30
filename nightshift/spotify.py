@@ -177,7 +177,7 @@ def run_spotify_download(job_id: str, url: str,
                     emit(q, "log", line=notice)
                     log.write(notice)
                     pl_title = usable
-                pl_unique = syncreg.resolve_playlist_name(pl_title, url)
+                pl_unique = syncreg.resolve_playlist_name(pl_title, url, owner_id)
 
         prev_m3us = {}
         for _m in glob.glob(f"{cfg.library.music_root}/*.m3u8"):
@@ -483,7 +483,7 @@ def _handle_playlist(q, log: LiveLog, url: str,
 
     # Personalized playlists ("Discover Weekly") collide across accounts:
     # give this one a unique file name and keep the real title in #PLAYLIST.
-    unique = known_unique or syncreg.resolve_playlist_name(pl_title, url)
+    unique = known_unique or syncreg.resolve_playlist_name(pl_title, url, owner_id)
     target = f"{cfg.library.music_root}/{unique}.m3u8"
     if os.path.abspath(newest) != os.path.abspath(target):
         try:
@@ -503,7 +503,7 @@ def _handle_playlist(q, log: LiveLog, url: str,
     _ensure_playlist_directive(newest, pl_title)
 
     emit(q, "status", message="Navidrome: applying playlist visibility …", progress=98)
-    ok, m = navidrome.apply_playlist_settings(pl_title, owner_id)
+    ok, m = navidrome.apply_playlist_settings(pl_title, owner_id, path=newest)
     emit(q, "log", line=m)
     log.write(m)
 

@@ -30,13 +30,25 @@ def _req(method: str, path: str, token: str | None = None, data=None):
         return json.loads(raw) if raw else {}
 
 
+# A token is reused instead of asked for per request: Navidrome answers the
+# third login within a minute with HTTP 429, and every caller here treats a
+# failed request as "Navidrome cannot be asked" - which would quietly turn
+# owner assignment off halfway through a nightly run.
+_TOKEN_TTL = 600
+_token: tuple[float, str] | None = None
+
+
 def login() -> str:
+    global _token
     if not enabled():
         raise RuntimeError("Navidrome integration not configured")
+    if _token and time.time() - _token[0] < _TOKEN_TTL:
+        return _token[1]
     res = _req("POST", "/auth/login",
                data={"username": cfg.navidrome.username,
                      "password": cfg.navidrome.password})
-    return res["token"]
+    _token = (time.time(), res["token"])
+    return _token[1]
 
 
 def list_users(token: str) -> list[dict]:
@@ -53,12 +65,57 @@ def list_users(token: str) -> list[dict]:
         return []
 
 
+def list_playlists(token: str) -> list[dict]:
+    """All playlists – filtered client-side (the name query is broken)."""
+    return _req("GET", "/api/playlist?_start=0&_end=500&_sort=updatedAt&_order=DESC",
+                token=token)
+
+
 def find_playlist_by_name(token: str, name: str):
-    """Find a playlist by name – filtered client-side (API bug workaround)."""
-    res = _req("GET", "/api/playlist?_start=0&_end=200&_sort=updatedAt&_order=DESC",
-               token=token)
-    matches = [pl for pl in res if pl.get("name") == name]
+    """Find a playlist by name – the first match wins."""
+    matches = [pl for pl in list_playlists(token) if pl.get("name") == name]
     return matches[0] if matches else None
+
+
+def _locate(token: str, name: str, path: str | None):
+    """The playlist to act on: the row for the file whenever we know the file.
+
+    Personalized playlists carry the same title in every account, so a name
+    is not an identity – Urs' "Daily Mix 3" and Meira's are two rows with one
+    name, and picking the wrong one is how one account's playlist ends up
+    owned by another. The file a playlist was imported from is unique, so it
+    is asked for first; falling back to the name is only safe while that name
+    belongs to exactly one playlist.
+    """
+    playlists = list_playlists(token)
+    if path:
+        for pl in playlists:
+            if pl.get("path") == path:
+                return pl
+    named = [pl for pl in playlists if pl.get("name") == name]
+    if path:
+        return named[0] if len(named) == 1 else None
+    return named[0] if named else None
+
+
+def playlist_ownership() -> tuple[dict[str, str], set[str]] | None:
+    """Who owns which imported playlist file, plus the ids of the admins.
+
+    None when Navidrome cannot be asked at all – callers must then keep their
+    previous behaviour instead of guessing an owner.
+    """
+    if not enabled():
+        return None
+    try:
+        token = login()
+        owners = {pl["path"]: pl.get("ownerId") or ""
+                  for pl in list_playlists(token) if pl.get("path")}
+        admins = {u.get("id") for u in
+                  _req("GET", "/api/user?_start=0&_end=200", token=token)
+                  if u.get("isAdmin")}
+    except Exception:
+        return None
+    return owners, admins
 
 
 def set_public(token: str, playlist_id: str, public: bool = True):
@@ -71,7 +128,8 @@ def set_owner(token: str, playlist_id: str, owner_id: str):
                 token=token, data={"ownerId": owner_id, "public": False})
 
 
-def set_visibility(name: str, public: bool) -> tuple[bool, str]:
+def set_visibility(name: str, public: bool,
+                   path: str | None = None) -> tuple[bool, str]:
     """Apply a visibility change to an already-imported playlist.
 
     Used by the sync page editor. Unlike apply_playlist_settings this does
@@ -85,7 +143,7 @@ def set_visibility(name: str, public: bool) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Navidrome login failed: {e}"
     try:
-        pl = find_playlist_by_name(token, name)
+        pl = _locate(token, name, path)
     except Exception as e:
         return False, f"Navidrome request failed: {e}"
     if not pl:
@@ -98,10 +156,13 @@ def set_visibility(name: str, public: bool) -> tuple[bool, str]:
                   else f"Playlist '{name}' set to private in Navidrome")
 
 
-def apply_playlist_settings(name: str, owner_id: str | None = None) -> tuple[bool, str]:
+def apply_playlist_settings(name: str, owner_id: str | None = None,
+                            path: str | None = None) -> tuple[bool, str]:
     """Waits for the playlist import, then sets it public or assigns an owner.
 
-    No-op with a success message when the integration is disabled.
+    `path` is the playlist file just written; it identifies the playlist even
+    when another account holds one of the same name. No-op with a success
+    message when the integration is disabled.
     """
     if not enabled():
         return True, "Navidrome integration disabled - skipped"
@@ -114,7 +175,7 @@ def apply_playlist_settings(name: str, owner_id: str | None = None) -> tuple[boo
     pl = None
     for _ in range(int(cfg.navidrome.import_retries)):
         try:
-            pl = find_playlist_by_name(token, name)
+            pl = _locate(token, name, path)
         except Exception:
             pl = None
         if pl:

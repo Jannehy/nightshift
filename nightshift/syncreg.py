@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 
+from . import navidrome
 from .config import cfg
 
 
@@ -57,13 +58,39 @@ def _sanitize_folder(title: str) -> str:
     return re.sub(r"[/\\\x00]", "_", title).strip() or "playlist"
 
 
-def _resolve_unique(title: str, url: str, sources: tuple[str, ...]) -> str:
+def _claimed_by_other(path: str | None, owner_id: str | None,
+                      ownership: tuple[dict[str, str], set[str]] | None) -> bool:
+    """Whether an existing playlist file belongs to a different account.
+
+    That a file exists says nothing on its own: someone refreshing their own
+    playlist has to keep its name, or every repeat download would pile up
+    another "(2)". Navidrome knows who owns the playlist imported from the
+    file, and that is the question that matters. A download nobody was named
+    for is public and lives in the admin's space, so an admin-owned playlist
+    counts as its own — a family member's never does.
+    """
+    if not path or not ownership or not os.path.exists(path):
+        return False
+    owners, admins = ownership
+    owner = owners.get(path)
+    if not owner:
+        return False
+    return owner not in admins if owner_id is None else owner != owner_id
+
+
+def _resolve_unique(title: str, url: str, sources: tuple[str, ...],
+                    path_for=None, owner_id: str | None = None) -> str:
     """Unique on-disk name for a playlist within one source group.
 
     Personalized playlists ("Your Mix 1", "Discover Weekly") share the same
     title across accounts. The same URL always maps to the same name; a
     different URL claiming a taken title gets a numeric suffix. The pretty
     name still reaches the media server via the m3u8 #PLAYLIST directive.
+
+    A name counts as taken when another sync entry uses it *or* when the file
+    it would write already carries someone else's playlist — a one-off
+    download is never registered, so the registry alone does not see it. That
+    gap once let one account's "Daily Mix 3" overwrite another's.
     """
     safe = _sanitize_folder(title)
     entries = [e for e in _load() if e.get("source") in sources]
@@ -72,22 +99,36 @@ def _resolve_unique(title: str, url: str, sources: tuple[str, ...]) -> str:
             return e.get("folder") or _sanitize_folder(e.get("name") or title)
     taken = {e.get("folder") or _sanitize_folder(e.get("name") or "")
              for e in entries if e.get("url") != url}
-    if safe not in taken:
+    ownership = navidrome.playlist_ownership() if path_for else None
+
+    def free(name: str) -> bool:
+        if name in taken:
+            return False
+        return not _claimed_by_other(path_for(name) if path_for else None,
+                                     owner_id, ownership)
+
+    if free(safe):
         return safe
     n = 2
-    while f"{safe} ({n})" in taken:
+    while not free(f"{safe} ({n})"):
         n += 1
     return f"{safe} ({n})"
 
 
-def resolve_set_folder(title: str, url: str) -> str:
+def resolve_set_folder(title: str, url: str, base_dir: str | None = None,
+                       owner_id: str | None = None) -> str:
     """Folder name for a SoundCloud/YouTube set."""
-    return _resolve_unique(title, url, ("soundcloud", "youtube"))
+    path_for = (lambda n: f"{base_dir}/{n}/{n}.m3u8") if base_dir else None
+    return _resolve_unique(title, url, ("soundcloud", "youtube"),
+                           path_for, owner_id)
 
 
-def resolve_playlist_name(title: str, url: str) -> str:
+def resolve_playlist_name(title: str, url: str,
+                          owner_id: str | None = None) -> str:
     """Base name for a Spotify playlist's m3u8 and .spotdl sync file."""
-    return _resolve_unique(title, url, ("spotify",))
+    root = cfg.library.music_root.rstrip("/")
+    return _resolve_unique(title, url, ("spotify",),
+                           lambda n: f"{root}/{n}.m3u8", owner_id)
 
 
 def remove(url: str) -> bool:
@@ -215,6 +256,38 @@ def owner_of(url: str = "", filename: str = "") -> str | None:
         if (url and i.get("url") == url) or (filename and i.get("file") == filename):
             return i.get("owner")
     return None
+
+
+def file_path_of(url: str = "", filename: str = "") -> str | None:
+    """The playlist file behind a sync item — its unambiguous key.
+
+    Names repeat across accounts, so anything acting on a single playlist
+    (visibility, owner) has to say which file it means. Registry entries know
+    their on-disk name; a .spotdl file without an entry only knows its own
+    stem, which is good enough for playlists whose title needs no sanitizing.
+    """
+    root = cfg.library.music_root.rstrip("/")
+    entry = None
+    if url:
+        entry = next((e for e in _load() if e.get("url") == url), None)
+    if entry is None and filename:
+        item = next((i for i in _spotdl_items() if i["file"] == filename), None)
+        if item is None:
+            return None
+        entry = (next((e for e in _load() if e.get("url") == item["url"]), None)
+                 if item["url"] else None) or {"source": "spotify",
+                                               "name": item["name"]}
+    if entry is None:
+        return None
+    name = entry.get("folder") or _sanitize_folder(entry.get("name") or "")
+    if not name:
+        return None
+    source = entry.get("source")
+    if source == "soundcloud":
+        return f"{root}/{cfg.library.soundcloud_dir}/{name}/{name}.m3u8"
+    if source == "youtube":
+        return f"{root}/{cfg.library.youtube_dir}/{name}/{name}.m3u8"
+    return f"{root}/{name}.m3u8"
 
 
 def remove_item(url: str = "", filename: str = "") -> bool:
