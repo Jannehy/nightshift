@@ -175,6 +175,14 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
         p = Path(cfg.spotify_path)
         return sum(1 for _ in p.rglob(f"*{spotify_ext}")) if p.exists() else 0
 
+    # This loop walks the files, not the registry, so an entry that lost its
+    # sync file is simply never reached. Say so rather than let the playlist
+    # sit on the sync page looking maintained.
+    for orphan in syncreg.orphan_entries():
+        _log_line(log, emit_fn,
+                  f"  ⚠ {orphan.get('name') or orphan.get('url')}: registered "
+                  f"but no sync file - it is not being updated")
+
     for sync_file in sorted(sync_dir.glob("*.spotdl")):
         name = sync_file.stem
         if looks_unresolved(name):

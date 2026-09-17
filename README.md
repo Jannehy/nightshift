@@ -254,7 +254,8 @@ else changes; downloads keep the tags their source provided.
 Every night (schedule configurable) Nightshift:
 
 1. Re-syncs all Spotify sync playlists via spotDL — new tracks are downloaded,
-   existing ones skipped
+   existing ones skipped. A playlist that is registered but has lost its sync
+   file is named in the log instead of being silently passed over
 2. Tags new files with beets (if enabled)
 3. Re-syncs all SoundCloud/YouTube sync playlists via yt-dlp and rewrites
    their m3u8 files

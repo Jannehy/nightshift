@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from . import navidrome
@@ -36,12 +37,32 @@ def _save(entries: list[dict]):
     os.replace(tmp, path)
 
 
+_SPOTIFY_PLAYLIST = re.compile(r"open\.spotify\.com/playlist/([A-Za-z0-9]+)")
+
+
+def _url_key(url: str) -> str:
+    """A playlist's identity, independent of Spotify's ?si= parameter.
+
+    Spotify appends a share id to every copied link and changes it on every
+    copy, so the same playlist arrives under a different URL each time. A
+    plain string comparison does not recognise it, which is how one playlist
+    ended up registered twice - the second entry took a new name, and the
+    first stopped being synced because nothing wrote its file any more.
+    """
+    m = _SPOTIFY_PLAYLIST.search(url or "")
+    return f"spotify:{m.group(1)}" if m else (url or "")
+
+
+def _same(a: str | None, b: str | None) -> bool:
+    return bool(a) and bool(b) and _url_key(a) == _url_key(b)
+
+
 def add(url: str, source: str, name: str,
         owner: str | None = None, public: bool = True,
         folder: str | None = None) -> bool:
     entries = _load()
     for e in entries:
-        if e.get("url") == url:
+        if _same(e.get("url"), url):
             if folder and not e.get("folder"):
                 e["folder"] = folder  # backfill for older entries
                 _save(entries)
@@ -54,7 +75,6 @@ def add(url: str, source: str, name: str,
 
 
 def _sanitize_folder(title: str) -> str:
-    import re
     return re.sub(r"[/\\\x00]", "_", title).strip() or "playlist"
 
 
@@ -95,10 +115,10 @@ def _resolve_unique(title: str, url: str, sources: tuple[str, ...],
     safe = _sanitize_folder(title)
     entries = [e for e in _load() if e.get("source") in sources]
     for e in entries:
-        if e.get("url") == url:
+        if _same(e.get("url"), url):
             return e.get("folder") or _sanitize_folder(e.get("name") or title)
     taken = {e.get("folder") or _sanitize_folder(e.get("name") or "")
-             for e in entries if e.get("url") != url}
+             for e in entries if not _same(e.get("url"), url)}
     ownership = navidrome.playlist_ownership() if path_for else None
 
     def free(name: str) -> bool:
@@ -133,7 +153,7 @@ def resolve_playlist_name(title: str, url: str,
 
 def remove(url: str) -> bool:
     entries = _load()
-    remaining = [e for e in entries if e.get("url") != url]
+    remaining = [e for e in entries if not _same(e.get("url"), url)]
     if len(remaining) == len(entries):
         return False
     _save(remaining)
@@ -186,12 +206,13 @@ def all_sync_items() -> list[dict]:
     (owner/public) to that item instead of appearing twice.
     """
     items = _spotdl_items()
-    by_url = {i["url"]: i for i in items if i["url"]}
+    by_url = {_url_key(i["url"]): i for i in items if i["url"]}
     for e in _load():
         url = e.get("url") or ""
-        if url and url in by_url:
-            by_url[url]["owner"] = e.get("owner")
-            by_url[url]["public"] = e.get("public", True)
+        if url and _url_key(url) in by_url:
+            item = by_url[_url_key(url)]
+            item["owner"] = e.get("owner")
+            item["public"] = e.get("public", True)
             continue
         items.append({**e, "file": None})
     for i in items:
@@ -226,7 +247,7 @@ def set_meta(url: str = "", filename: str = "",
     """
     entries = _load()
     for e in entries:
-        if url and e.get("url") == url:
+        if _same(e.get("url"), url):
             e["owner"] = owner or None
             e["public"] = bool(public)
             _save(entries)
@@ -246,14 +267,14 @@ def set_meta(url: str = "", filename: str = "",
 def display_name_of(url: str = "", filename: str = "") -> str | None:
     """The playlist's real title — the name it carries in the media server."""
     for i in all_sync_items():
-        if (url and i.get("url") == url) or (filename and i.get("file") == filename):
+        if _same(i.get("url"), url) or (filename and i.get("file") == filename):
             return i.get("name")
     return None
 
 
 def owner_of(url: str = "", filename: str = "") -> str | None:
     for i in all_sync_items():
-        if (url and i.get("url") == url) or (filename and i.get("file") == filename):
+        if _same(i.get("url"), url) or (filename and i.get("file") == filename):
             return i.get("owner")
     return None
 
@@ -269,12 +290,12 @@ def file_path_of(url: str = "", filename: str = "") -> str | None:
     root = cfg.library.music_root.rstrip("/")
     entry = None
     if url:
-        entry = next((e for e in _load() if e.get("url") == url), None)
+        entry = next((e for e in _load() if _same(e.get("url"), url)), None)
     if entry is None and filename:
         item = next((i for i in _spotdl_items() if i["file"] == filename), None)
         if item is None:
             return None
-        entry = (next((e for e in _load() if e.get("url") == item["url"]), None)
+        entry = (next((e for e in _load() if _same(e.get("url"), item["url"])), None)
                  if item["url"] else None) or {"source": "spotify",
                                                "name": item["name"]}
     if entry is None:
@@ -290,8 +311,33 @@ def file_path_of(url: str = "", filename: str = "") -> str | None:
     return f"{root}/{name}.m3u8"
 
 
+def orphan_entries() -> list[dict]:
+    """Spotify entries with no .spotdl file behind them.
+
+    The nightly walks the sync files, so such an entry is never synced again
+    while the sync page still lists it - the playlist looks registered and
+    quietly stops filling. It stayed invisible for days once; now the nightly
+    says so.
+    """
+    have = {_url_key(i["url"]) for i in _spotdl_items() if i.get("url")}
+    return [e for e in _load()
+            if e.get("source") == "spotify"
+            and _url_key(e.get("url") or "") not in have]
+
+
 def remove_item(url: str = "", filename: str = "") -> bool:
-    """Remove a sync entry: registry entry, .spotdl file, or both."""
+    """Remove a sync entry - registry entry and .spotdl file together.
+
+    Taking out only the half whose key was passed is what leaves an orphan
+    behind: the other half keeps the playlist on the sync page while nothing
+    syncs it any more. Either key therefore resolves to the whole item first.
+    """
+    item = next((i for i in all_sync_items()
+                 if _same(i.get("url"), url)
+                 or (filename and i.get("file") == filename)), None)
+    if item:
+        url = item.get("url") or url
+        filename = item.get("file") or filename
     removed = False
     if filename:
         target = Path(cfg.nightly.spotdl_sync_dir) / Path(filename).name
