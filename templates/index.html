@@ -481,6 +481,13 @@
             opt.textContent = u.name || u.userName;
             $("owner").appendChild(opt);
           });
+          // Start on the signed-in user's own Navidrome account. Without a
+          // match the field keeps asking, which is the safer default for an
+          // account the server cannot place.
+          if (data.default_owner) {
+            $("owner").value = data.default_owner;
+            refreshGates();
+          }
         } catch (e) { /* Navidrome disabled */ }
       })();
 

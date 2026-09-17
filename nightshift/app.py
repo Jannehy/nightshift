@@ -282,8 +282,16 @@ def create_app() -> Flask:
             return jsonify({"users": [], "enabled": False})
         try:
             token = navidrome.login()
-            return jsonify({"users": navidrome.list_users(token),
-                            "enabled": True})
+            users = navidrome.list_users(token)
+            # Which of them is the person asking: the owner field starts on
+            # their own account instead of on "choose ...". Urs once picked
+            # "public" by hand and his playlist ended up owned by the admin.
+            me = (auth.current_user() or {}).get("username", "").strip().lower()
+            default = next((u["id"] for u in users
+                            if (u.get("userName") or "").strip().lower() == me),
+                           None)
+            return jsonify({"users": users, "enabled": True,
+                            "default_owner": default})
         except Exception as e:
             return jsonify({"users": [], "enabled": True, "error": str(e)})
 
