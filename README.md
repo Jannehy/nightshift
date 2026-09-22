@@ -20,7 +20,9 @@ folder of audio files.
   Nightshift picks the right pipeline (spotDL or yt-dlp) automatically
 - **Sync playlists** – mark a playlist once and the built-in nightly job keeps
   it up to date, working through large playlists across multiple nights when
-  rate limits bite
+  rate limits bite. Owners can rename their own on the sync page, which is the
+  only place a rename survives: a media server reads the name from the m3u8,
+  and the nightly writes that file again
 - **Search & download** – find tracks and albums via the iTunes catalog,
   preview them, download with one click
 - **Playlist files included** – m3u8 files are written automatically so your

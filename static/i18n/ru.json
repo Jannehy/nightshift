@@ -102,6 +102,7 @@
   "settings.hint.music_root.docker": "В Docker оставьте здесь /music. Чтобы использовать другую папку, измените том в docker-compose.yml (например, /ваш/путь:/music).",
   "settings.hint.path.docker": "Должен быть путь внутри контейнера — лучше всего в /config.",
   "sync.edit": "Изменить",
+  "sync.name": "Название",
   "sync.public": "Публичный",
   "sync.private": "Приватный",
   "sync.noowner": "Без владельца",

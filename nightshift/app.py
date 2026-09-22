@@ -24,7 +24,7 @@ from .jobs import enqueue, jobs, new_job, queue_status
 from .logs import (LiveLog, download_log_path, nightly_log_path,
                    remove_download_log)
 from .search import bp as search_bp
-from .spotify import run_spotify_download
+from .spotify import _ensure_playlist_directive, run_spotify_download
 
 SUPPORTED_URL_DOMAINS = ("spotify.com", "soundcloud.com", "youtube.com", "youtu.be")
 
@@ -304,26 +304,50 @@ def create_app() -> Flask:
                         "enabled": syncreg.sync_enabled()})
 
     @app.route("/api/sync-playlists", methods=["PATCH"])
-    @auth.admin_required
+    @auth.login_required
     def sync_playlist_meta():
         data = request.json or {}
         url = (data.get("url") or "").strip()
         filename = (data.get("file") or "").strip()
-        public = bool(data.get("public", True))
-        ok = syncreg.set_meta(url, filename,
-                              (data.get("owner") or "").strip() or None,
-                              public)
-        if not ok:
-            return jsonify({"error": "Entry not found"}), 404
-        # Mirror the visibility change to Navidrome, otherwise "public" would
-        # only affect who sees the playlist inside Nightshift. Owner changes
-        # stay local on purpose — reassigning an existing playlist to another
-        # Navidrome user is not reliable through the internal API.
-        name = syncreg.display_name_of(url, filename) or ""
+        new_name = (data.get("name") or "").strip()
+        # Owner and visibility decide who may see a playlist, so they stay with
+        # the admin. The name is the owner's own business - a synced playlist
+        # cannot be renamed in Navidrome, because the nightly writes the name
+        # back from here, so this page is the only place it can happen.
+        rights = "owner" in data or "public" in data
+        if not auth.is_admin():
+            if rights or not new_name:
+                return jsonify({"error": "Administrators only"}), 403
+            if syncreg.owner_of(url, filename) != auth.current_user()["username"]:
+                return jsonify({"error": "Administrators only"}), 403
+
+        old_name = syncreg.display_name_of(url, filename) or ""
+        path = syncreg.file_path_of(url, filename)
         nd_ok, nd_msg = (True, "")
-        if name:
-            nd_ok, nd_msg = navidrome.set_visibility(
-                name, public, syncreg.file_path_of(url, filename))
+
+        if new_name and new_name != old_name:
+            if not syncreg.set_display_name(url, filename, new_name):
+                return jsonify({"error": "Entry not found"}), 404
+            # The m3u8 carries the name for good; Navidrome is told directly so
+            # nobody has to wait for the next scan.
+            if path:
+                _ensure_playlist_directive(path, new_name, replace=True)
+            nd_ok, nd_msg = navidrome.rename_playlist(old_name, new_name, path)
+            old_name = new_name
+
+        if rights:
+            public = bool(data.get("public", True))
+            if not syncreg.set_meta(url, filename,
+                                    (data.get("owner") or "").strip() or None,
+                                    public):
+                return jsonify({"error": "Entry not found"}), 404
+            # Mirror the visibility change to Navidrome, otherwise "public"
+            # would only affect who sees the playlist inside Nightshift. Owner
+            # changes stay local on purpose — reassigning an existing playlist
+            # to another Navidrome user is not reliable through the internal API.
+            if old_name:
+                nd_ok, nd_msg = navidrome.set_visibility(old_name, public, path)
+
         return jsonify({"ok": True, "navidrome_ok": nd_ok,
                         "navidrome": nd_msg})
 

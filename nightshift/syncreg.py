@@ -213,6 +213,11 @@ def all_sync_items() -> list[dict]:
             item = by_url[_url_key(url)]
             item["owner"] = e.get("owner")
             item["public"] = e.get("public", True)
+            # The registry holds the name the media server shows; the .spotdl
+            # only knows its own file name. Showing the file name made a
+            # rename look like it had not happened.
+            if e.get("name"):
+                item["name"] = e["name"]
             continue
         items.append({**e, "file": None})
     for i in items:
@@ -277,6 +282,51 @@ def owner_of(url: str = "", filename: str = "") -> str | None:
         if _same(i.get("url"), url) or (filename and i.get("file") == filename):
             return i.get("owner")
     return None
+
+
+def set_display_name(url: str = "", filename: str = "", name: str = "") -> bool:
+    """Renames a sync playlist.
+
+    The name belongs here, not in the media server: the nightly writes the
+    m3u8's #PLAYLIST line from this registry, so a rename in Navidrome would
+    hold only until the next run.
+
+    The on-disk name is pinned on the way. Without a folder of its own an
+    entry derives its file name from the display name - renaming it would
+    quietly point the entry at a file that does not exist, and the next
+    download would write a second one beside it.
+    """
+    name = name.strip()
+    if not name:
+        return False
+    entries = _load()
+    for e in entries:
+        if not (_same(e.get("url"), url)
+                or (filename and _spotdl_file_of(e) == filename)):
+            continue
+        if not e.get("folder"):
+            e["folder"] = _sanitize_folder(e.get("name") or "")
+        e["name"] = name
+        _save(entries)
+        return True
+    # Eine .spotdl ohne Registereintrag: einen anlegen, damit der Name bleibt.
+    for item in _spotdl_items():
+        if (url and _same(item["url"], url)) or (filename and item["file"] == filename):
+            entries.append({"url": item["url"], "source": "spotify",
+                            "name": name, "owner": None, "public": True,
+                            "folder": item["name"]})
+            _save(entries)
+            return True
+    return False
+
+
+def _spotdl_file_of(entry: dict) -> str | None:
+    """The .spotdl belonging to a registry entry, by its pinned name."""
+    base = entry.get("folder") or _sanitize_folder(entry.get("name") or "")
+    if not base:
+        return None
+    safe = re.sub(r"[^\w\- ()]", "_", base).strip()
+    return f"{safe}.spotdl" if safe else None
 
 
 def file_path_of(url: str = "", filename: str = "") -> str | None:

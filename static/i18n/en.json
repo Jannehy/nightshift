@@ -102,6 +102,7 @@
   "settings.hint.music_root.docker": "When running in Docker, keep this at /music. To use a different folder, change the volume mapping in docker-compose.yml (e.g. /your/path:/music).",
   "settings.hint.path.docker": "Must be a path inside the container – ideally below /config.",
   "sync.edit": "Edit",
+  "sync.name": "Name",
   "sync.public": "Public",
   "sync.private": "Private",
   "sync.noowner": "No owner",

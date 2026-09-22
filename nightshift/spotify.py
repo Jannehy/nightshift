@@ -429,15 +429,21 @@ def _post_process(q, log: LiveLog, new_files: list[str]):
                   f"{counts['missing']} without")
 
 
-def _ensure_playlist_directive(m3u_path: str, title: str):
-    """Add #PLAYLIST:<title> so media servers show the original name."""
+def _ensure_playlist_directive(m3u_path: str, title: str, replace: bool = False):
+    """Add #PLAYLIST:<title> so media servers show the original name.
+
+    With `replace` an existing directive is overwritten - that is a rename,
+    and the media server picks the new name up when it reads the file again.
+    """
     try:
         with open(m3u_path) as f:
             lines = f.read().splitlines()
     except OSError:
         return
     if any(l.startswith("#PLAYLIST:") for l in lines):
-        return
+        if not replace:
+            return
+        lines = [l for l in lines if not l.startswith("#PLAYLIST:")]
     if lines and lines[0].startswith("#EXTM3U"):
         lines.insert(1, f"#PLAYLIST:{title}")
     else:

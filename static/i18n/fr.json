@@ -102,6 +102,7 @@
   "settings.hint.music_root.docker": "Sous Docker, laisse /music ici. Pour un autre dossier, modifie le volume dans docker-compose.yml (p. ex. /ton/chemin:/music).",
   "settings.hint.path.docker": "Doit être un chemin dans le conteneur, de préférence sous /config.",
   "sync.edit": "Modifier",
+  "sync.name": "Nom",
   "sync.public": "Publique",
   "sync.private": "Privée",
   "sync.noowner": "Sans propriétaire",

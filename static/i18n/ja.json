@@ -102,6 +102,7 @@
   "settings.hint.music_root.docker": "Docker では /music のままにしてください。別のフォルダを使うには docker-compose.yml のボリューム設定を変更します（例：/your/path:/music）。",
   "settings.hint.path.docker": "コンテナ内のパスである必要があります（/config 以下を推奨）。",
   "sync.edit": "編集",
+  "sync.name": "名前",
   "sync.public": "公開",
   "sync.private": "非公開",
   "sync.noowner": "所有者なし",

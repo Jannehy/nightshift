@@ -102,6 +102,7 @@
   "settings.hint.music_root.docker": "En Docker, deja esto en /music. Para usar otra carpeta, cambia el volumen en docker-compose.yml (p. ej. /tu/ruta:/music).",
   "settings.hint.path.docker": "Debe ser una ruta dentro del contenedor, preferiblemente bajo /config.",
   "sync.edit": "Editar",
+  "sync.name": "Nombre",
   "sync.public": "Pública",
   "sync.private": "Privada",
   "sync.noowner": "Sin propietario",

@@ -62,7 +62,7 @@
             badge.textContent = e.source;
             right.appendChild(badge);
 
-            if (isAdmin) {
+            if (isAdmin || e.can_remove) {
               const edit = document.createElement("button");
               edit.className = "ghost";
               edit.style.padding = "0.35rem 0.8rem";
@@ -126,6 +126,15 @@
           "display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;" +
           "padding:0.6rem 0 0.9rem;border-bottom:1px solid var(--line)";
 
+        // The name lives in the sync registry, not in Navidrome: the nightly
+        // writes it back from there through the m3u8. This is the only place
+        // a rename survives.
+        const nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.value = entry.name || "";
+        nameInput.placeholder = NS.t("sync.name");
+        nameInput.style.maxWidth = "220px";
+
         const sel = document.createElement("select");
         sel.style.maxWidth = "180px";
         const none = document.createElement("option");
@@ -153,12 +162,16 @@
         save.addEventListener("click", async () => {
           save.disabled = true;
           try {
-            const res = await NS.api("/api/sync-playlists", {
-              method: "PATCH", body: {
-                url: entry.url, file: entry.file,
-                owner: sel.value, public: cb.checked,
-              },
-            });
+            // Only send owner and visibility when they may be changed at
+            // all; the server refuses the request otherwise.
+            const body = { url: entry.url, file: entry.file,
+                           name: nameInput.value };
+            if (isAdmin) {
+              body.owner = sel.value;
+              body.public = cb.checked;
+            }
+            const res = await NS.api("/api/sync-playlists",
+                                     { method: "PATCH", body });
             await load();
             // Saving always succeeds locally; Navidrome may still refuse
             // (playlist not imported yet, service account wrong, ...).
@@ -173,7 +186,9 @@
           }
         });
 
-        ed.appendChild(sel); ed.appendChild(lab); ed.appendChild(save);
+        ed.appendChild(nameInput);
+        if (isAdmin) { ed.appendChild(sel); ed.appendChild(lab); }
+        ed.appendChild(save);
         row.after(ed);
       }
 

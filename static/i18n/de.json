@@ -102,6 +102,7 @@
   "settings.hint.music_root.docker": "Im Docker-Betrieb hier /music stehen lassen. Um einen anderen Ordner zu nutzen, passe das Volume in der docker-compose.yml an (z. B. /dein/pfad:/music).",
   "settings.hint.path.docker": "Muss ein Pfad im Container sein – am besten unterhalb von /config.",
   "sync.edit": "Bearbeiten",
+  "sync.name": "Name",
   "sync.public": "Öffentlich",
   "sync.private": "Privat",
   "sync.noowner": "Ohne Besitzer",

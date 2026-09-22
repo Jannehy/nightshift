@@ -102,6 +102,7 @@
   "settings.hint.music_root.docker": "W Dockerze zostaw tutaj /music. Aby użyć innego folderu, zmień wolumen w docker-compose.yml (np. /twoja/sciezka:/music).",
   "settings.hint.path.docker": "Musi być ścieżką wewnątrz kontenera – najlepiej w /config.",
   "sync.edit": "Edytuj",
+  "sync.name": "Nazwa",
   "sync.public": "Publiczna",
   "sync.private": "Prywatna",
   "sync.noowner": "Bez właściciela",

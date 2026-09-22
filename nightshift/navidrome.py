@@ -156,6 +156,29 @@ def set_visibility(name: str, public: bool,
                   else f"Playlist '{name}' set to private in Navidrome")
 
 
+def rename_playlist(name: str, new_name: str,
+                    path: str | None = None) -> tuple[bool, str]:
+    """Renames an imported playlist so the change shows at once.
+
+    The m3u8 carries the name for good; this only saves everyone the wait for
+    the next scan.
+    """
+    if not enabled():
+        return True, "Navidrome integration disabled - skipped"
+    try:
+        token = login()
+        pl = _locate(token, name, path)
+    except Exception as e:
+        return False, f"Navidrome request failed: {e}"
+    if not pl:
+        return False, f"Playlist '{name}' not found in Navidrome"
+    try:
+        _req("PUT", f"/api/playlist/{pl['id']}", token=token, data={"name": new_name})
+    except Exception as e:
+        return False, f"Could not rename playlist '{name}': {e}"
+    return True, f"Playlist renamed to '{new_name}' in Navidrome"
+
+
 def apply_playlist_settings(name: str, owner_id: str | None = None,
                             path: str | None = None) -> tuple[bool, str]:
     """Waits for the playlist import, then sets it public or assigns an owner.
