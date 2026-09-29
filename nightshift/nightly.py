@@ -24,7 +24,8 @@ from pathlib import Path
 from . import syncreg
 from .config import cfg
 from . import cookies, lyrics, notify, tagtidy
-from .downloader import AUDIO_EXTS, build_ytdlp_cmd, write_m3u_for
+from .downloader import (AUDIO_EXTS, build_ytdlp_cmd,
+                         drop_redundant_copies, write_m3u_for_dirs)
 from .spotify import _ensure_playlist_directive, looks_unresolved
 from .logs import LiveLog, nightly_log_path
 
@@ -529,11 +530,21 @@ def _registry_sync_step(log, emit_fn) -> tuple[int, int]:
         if set_dir.is_dir():
             tracks = [str(f) for f in set_dir.iterdir()
                       if f.suffix.lower() in AUDIO_EXTS]
+            # A track this set shares with another one arrived a second time;
+            # the copy goes, the playlist points at the original instead.
+            tracks, dropped = drop_redundant_copies(tracks, Path(base))
+            if dropped:
+                _log_line(log, emit_fn,
+                          f"    {len(dropped)} copy/copies dropped, "
+                          f"playlist points at the original")
             tidied = tagtidy.tidy(tracks)
             if tidied:
                 _log_line(log, emit_fn, f"    Tags tidied: {tidied} file(s)")
-            if tracks:
-                for m3u in write_m3u_for(tracks, display_name=e.get("name")):
+            if set_dir.is_dir():
+                for m3u in write_m3u_for_dirs([set_dir],
+                                              display_name=e.get("name"),
+                                              root=Path(base),
+                                              extra_members=dropped):
                     _log_line(log, emit_fn,
                               f"    m3u8 updated: {Path(m3u).name}")
 

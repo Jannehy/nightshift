@@ -63,29 +63,104 @@ def _find_new_audio(root: str, since: float) -> list[str]:
     return out
 
 
+def track_homes(root: Path) -> dict[str, Path]:
+    """Where each track actually lives, one entry per file name.
+
+    A track that sits in several playlists is kept once - in the folder that
+    fetched it first, which is the oldest file of that name.
+    """
+    homes: dict[str, Path] = {}
+    for f in root.rglob("*"):
+        if not f.is_file() or f.suffix.lower() not in AUDIO_EXTS:
+            continue
+        seen = homes.get(f.name)
+        if seen is None or f.stat().st_mtime < seen.stat().st_mtime:
+            homes[f.name] = f
+    return homes
+
+
+def drop_redundant_copies(new_files: list[str],
+                          root: Path) -> tuple[list[str], list[str]]:
+    """Removes a fresh download that another playlist already holds.
+
+    Playlists are downloaded into their own folder, so a track in two sets
+    arrives twice. The second copy is deleted right away and the playlist
+    points at the first one instead - the way the Spotify half has always
+    worked, where one file is referenced by up to eleven playlists.
+
+    Only files from this run are considered, and only when an older file of
+    the same name exists elsewhere, so nothing that was already in place can
+    be removed by this.
+
+    Returns (files still there, names that were dropped). The names matter:
+    the playlist still contains those tracks, and after the file is gone the
+    folder can no longer say so.
+    """
+    homes = track_homes(root)
+    kept, dropped = [], []
+    for path in new_files:
+        p = Path(path)
+        home = homes.get(p.name)
+        if home is not None and home != p:
+            try:
+                p.unlink()
+                dropped.append(p.name)
+                continue
+            except OSError:
+                pass
+        kept.append(path)
+    return kept, dropped
+
+
 def write_m3u_for(new_files: list[str],
-                  display_name: str | None = None) -> list[str]:
-    """Writes one m3u8 per set folder containing all of the folder's tracks.
+                  display_name: str | None = None,
+                  root: Path | None = None) -> list[str]:
+    """Convenience wrapper: the set folders are the parents of these files."""
+    return write_m3u_for_dirs(sorted({Path(f).parent for f in new_files}),
+                              display_name, root)
+
+
+def write_m3u_for_dirs(dirs: list[Path],
+                       display_name: str | None = None,
+                       root: Path | None = None,
+                       extra_members: list[str] | None = None) -> list[str]:
+    """Writes one m3u8 per set folder listing everything in that playlist.
+
+    An entry may point outside the folder. Membership therefore cannot be
+    read off the folder any more - it is carried over from the previous
+    m3u8 and extended by whatever is in the folder now. Each name is then
+    resolved to wherever that file actually lives.
 
     display_name goes into the #PLAYLIST directive, so media servers show
     the original playlist title even when the folder carries a
     disambiguation suffix like "Your Mix 1 (2)".
     """
-    dirs = sorted({Path(f).parent for f in new_files})
     created = []
     for d in dirs:
-        tracks = sorted(
-            f.name for f in d.iterdir()
-            if f.suffix.lower() in AUDIO_EXTS
-        )
+        base = root or d.parent
+        homes = track_homes(base)
+        m3u = d / f"{d.name}.m3u8"
+
+        members: list[str] = []
+        if m3u.exists():
+            for line in m3u.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    members.append(Path(line).name)
+        members += [f.name for f in d.iterdir()
+                    if f.is_file() and f.suffix.lower() in AUDIO_EXTS]
+        members += extra_members or []
+
+        tracks = sorted({m for m in members if m in homes})
         if not tracks:
             continue
-        m3u = d / f"{d.name}.m3u8"
-        with open(m3u, "w") as f:
+        with open(m3u, "w", encoding="utf-8") as f:
             f.write("#EXTM3U\n")
             f.write(f"#PLAYLIST:{display_name or d.name}\n")
             for t in tracks:
-                f.write(t + "\n")
+                home = homes[t]
+                f.write((t if home.parent == d
+                         else os.path.relpath(home, d)) + "\n")
         created.append(str(m3u))
     return created
 
@@ -118,10 +193,11 @@ def _archive_args(target_dir: str) -> list[str]:
     second copy. The archive fills itself on the first run: a track whose
     file is already there is recorded as downloaded rather than fetched.
 
-    One archive per set, not one for everything: a track that sits in two
-    playlists has to be fetched for both, because write_m3u_for builds each
-    m3u8 from the files in its own folder. A shared archive would skip the
-    second set and quietly leave the track out of its playlist.
+    One archive per set, not one for everything. A set has to see its own
+    members once to know it has them; a shared archive would skip a track
+    another playlist already holds, and the new set would never learn that
+    it contains it. The redundant copy is dropped right after the download
+    instead - see drop_redundant_copies.
     """
     return ["--download-archive", str(Path(target_dir) / ".ytdlp-archive")]
 
@@ -238,9 +314,16 @@ def run_ytdlp_download(job_id: str, url: str,
         emit(q, "log", line=f"-> {len(new_files)} new files")
         log.write(f"-> {len(new_files)} new files")
 
-        if new_files:
+        dropped: list[str] = []
+        if new_files and is_set:
+            new_files, dropped = drop_redundant_copies(new_files,
+                                                       Path(base_dir))
+        if new_files or dropped:
             if is_set:
-                for m3u in write_m3u_for(new_files, display_name=title):
+                for m3u in write_m3u_for_dirs(
+                        [Path(base_dir) / set_folder],
+                        display_name=title, root=Path(base_dir),
+                        extra_members=dropped):
                     emit(q, "log", line=f"Playlist created: {Path(m3u).name}")
                     log.write(f"Playlist created: {m3u}")
 
