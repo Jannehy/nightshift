@@ -110,27 +110,32 @@ def probe_url(url: str, cookie_args: list[str]) -> tuple[bool, str, int]:
     return is_set, title, total
 
 
-def _archive_args(base_dir: str) -> list[str]:
+def _archive_args(target_dir: str) -> list[str]:
     """Remembers what has been fetched, by track id rather than by name.
 
     A file name can change without the track changing - a renamed set, a
     title edited by the uploader - and every such change used to buy a
     second copy. The archive fills itself on the first run: a track whose
     file is already there is recorded as downloaded rather than fetched.
+
+    One archive per set, not one for everything: a track that sits in two
+    playlists has to be fetched for both, because write_m3u_for builds each
+    m3u8 from the files in its own folder. A shared archive would skip the
+    second set and quietly leave the track out of its playlist.
     """
-    return ["--download-archive", str(Path(base_dir) / ".ytdlp-archive")]
+    return ["--download-archive", str(Path(target_dir) / ".ytdlp-archive")]
 
 
 def build_ytdlp_cmd(url: str, source: str, template: str,
                     cookie_args: list[str],
-                    base_dir: str | None = None) -> list[str]:
+                    archive_dir: str | None = None) -> list[str]:
     fmt_args = ["-x"]
     if source == "YouTube":
         fmt_args = ["-f", "bestaudio/best", "-x",
                     "--audio-format", "mp3", "--audio-quality", "0"]
     return (["yt-dlp"] + fmt_args
             + ["--embed-thumbnail", "--embed-metadata"]
-            + (_archive_args(base_dir) if base_dir else [])
+            + (_archive_args(archive_dir) if archive_dir else [])
             + cookie_args + ["-o", template, url])
 
 
@@ -171,7 +176,8 @@ def run_ytdlp_download(job_id: str, url: str,
         emit(q, "status", message=msg, total=total, progress=5)
         log.write(msg)
 
-        cmd = build_ytdlp_cmd(url, source, template, cookie_args, base_dir)
+        archive_dir = f"{base_dir}/{set_folder}" if set_folder else base_dir
+        cmd = build_ytdlp_cmd(url, source, template, cookie_args, archive_dir)
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,

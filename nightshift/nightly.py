@@ -509,7 +509,10 @@ def _registry_sync_step(log, emit_fn) -> tuple[int, int]:
                   else cfg.downloads.youtube_cookie_file)
         if cookie and os.path.exists(cookie):
             cookie_args = ["--cookies", cookie]
-        cmd = build_ytdlp_cmd(url, source, template, cookie_args, base)
+        # Archive per set, not one for everything - see _archive_args.
+        cmd = build_ytdlp_cmd(url, source, template, cookie_args,
+                              str(Path(base) / folder)
+                              if "%" not in folder else base)
         try:
             r = subprocess.run(cmd, capture_output=True, text=True,
                                timeout=int(cfg.nightly.sync_timeout_seconds))
