@@ -217,7 +217,12 @@
         const body = line.replace(/^[\s•\-]*\[[^\]]*\]\s*/, "")
                          .replace(/^[\s•\-]+/, "");
         if (/^[^:]{1,40}:\s*\d+\s*$/.test(body)) return "";
-        if (/✗|⚠|FAILED|FEHLER|Error/i.test(line)) return "err";
+        // Plain "error" also hides inside words that mean nothing here:
+        // a track by "Absolute Terror" turned a clean run red. The word
+        // boundary rules those out, the second test puts back the
+        // compound exception names it would otherwise lose.
+        if (/✗|⚠|\b(?:error|failed|fehler)/i.test(line)
+            || /[A-Za-z]Error\b/.test(line)) return "err";
         return "";
       }
       let errCount = 0, missCount = 0, finished = false;

@@ -64,7 +64,12 @@ def nightly_log_path() -> Path:
 # does not have is an outcome, not a failure.
 _MISSING = re.compile(r"no results found|lookuperror|could not be downloaded",
                       re.IGNORECASE)
-_PROBLEM = re.compile(r"✗|⚠|error|failed", re.IGNORECASE)
+# "error" as a bare substring also matches inside words that carry no
+# meaning here - a track by "Absolute Terror" was reported as a failed run
+# on 2026-09-29, and every client then counted the invented entry again.
+# A word boundary rules those out; the second half puts back the compound
+# exception names a boundary would lose (HTTPError, ConnectionError).
+_PROBLEM = re.compile(r"✗|⚠|(?i:\b(?:error|failed))|[A-Za-z]Error\b")
 
 
 # Output spotDL passes through from a failed child process: a framed Python
