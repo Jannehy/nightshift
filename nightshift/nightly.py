@@ -500,13 +500,16 @@ def _registry_sync_step(log, emit_fn) -> tuple[int, int]:
             candidate = syncreg._sanitize_folder(e.get("name") or "")
             folder = candidate if (Path(base) / candidate).is_dir() else None
         folder = folder or "%(playlist_title)s"
-        template = f"{base}/{folder}/%(playlist_index)02d - %(title)s.%(ext)s"
+        # No playlist index - see downloader.run_ytdlp_download. This is
+        # where it hurt most: a nightly re-sync of a set that reorders
+        # itself fetched every moved track again, night after night.
+        template = f"{base}/{folder}/%(title)s.%(ext)s"
         cookie_args = []
         cookie = (cfg.downloads.soundcloud_cookie_file if source_key == "soundcloud"
                   else cfg.downloads.youtube_cookie_file)
         if cookie and os.path.exists(cookie):
             cookie_args = ["--cookies", cookie]
-        cmd = build_ytdlp_cmd(url, source, template, cookie_args)
+        cmd = build_ytdlp_cmd(url, source, template, cookie_args, base)
         try:
             r = subprocess.run(cmd, capture_output=True, text=True,
                                timeout=int(cfg.nightly.sync_timeout_seconds))

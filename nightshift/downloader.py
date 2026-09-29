@@ -110,14 +110,27 @@ def probe_url(url: str, cookie_args: list[str]) -> tuple[bool, str, int]:
     return is_set, title, total
 
 
+def _archive_args(base_dir: str) -> list[str]:
+    """Remembers what has been fetched, by track id rather than by name.
+
+    A file name can change without the track changing - a renamed set, a
+    title edited by the uploader - and every such change used to buy a
+    second copy. The archive fills itself on the first run: a track whose
+    file is already there is recorded as downloaded rather than fetched.
+    """
+    return ["--download-archive", str(Path(base_dir) / ".ytdlp-archive")]
+
+
 def build_ytdlp_cmd(url: str, source: str, template: str,
-                    cookie_args: list[str]) -> list[str]:
+                    cookie_args: list[str],
+                    base_dir: str | None = None) -> list[str]:
     fmt_args = ["-x"]
     if source == "YouTube":
         fmt_args = ["-f", "bestaudio/best", "-x",
                     "--audio-format", "mp3", "--audio-quality", "0"]
     return (["yt-dlp"] + fmt_args
             + ["--embed-thumbnail", "--embed-metadata"]
+            + (_archive_args(base_dir) if base_dir else [])
             + cookie_args + ["-o", template, url])
 
 
@@ -142,7 +155,13 @@ def run_ytdlp_download(job_id: str, url: str,
         if is_set:
             set_folder = syncreg.resolve_set_folder(title or "playlist", url,
                                                     base_dir, owner_id)
-            template = f"{base_dir}/{set_folder}/%(playlist_index)02d - %(title)s.%(ext)s"
+            # No playlist index in the name. It is a position, not an
+            # identity: SoundCloud reorders its own mixes constantly, so a
+            # track that moved got a new file name, the "already
+            # downloaded" check found nothing and fetched it again. One set
+            # held the same track five times. The m3u8 sorts by name either
+            # way, so the number never carried an order to begin with.
+            template = f"{base_dir}/{set_folder}/%(title)s.%(ext)s"
             msg = f"Playlist/set detected: {title} ({total} tracks)"
             if set_folder != (title or ""):
                 msg += f" -> folder: {set_folder}"
@@ -152,7 +171,7 @@ def run_ytdlp_download(job_id: str, url: str,
         emit(q, "status", message=msg, total=total, progress=5)
         log.write(msg)
 
-        cmd = build_ytdlp_cmd(url, source, template, cookie_args)
+        cmd = build_ytdlp_cmd(url, source, template, cookie_args, base_dir)
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
