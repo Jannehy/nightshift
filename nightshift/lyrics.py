@@ -43,6 +43,7 @@ PAUSE_SECONDS = 0.5
 
 LRC_LINE = re.compile(r"^\[\d+:\d+(?:\.\d+)?\]\s*")
 LRC_MARK = re.compile(r"^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$")
+LRC_ID_TAG = re.compile(r"^\[[a-zA-Z#]+:[^\]]*\]$")
 
 
 def available() -> bool:
@@ -51,9 +52,14 @@ def available() -> bool:
 
 
 def _plain(lrc: str) -> str:
-    """The same lyric without its timestamps, for the USLT frame."""
+    """The same lyric without its timestamps, for the USLT frame.
+
+    An .lrc may open with id tags - [ar:], [ti:], [length:] and the like.
+    They carry no lyric and would otherwise be read out as its first lines.
+    """
     lines = [LRC_LINE.sub("", line) for line in lrc.splitlines()]
-    return "\n".join(line for line in lines if line.strip())
+    return "\n".join(line for line in lines
+                     if line.strip() and not LRC_ID_TAG.match(line.strip()))
 
 
 def _is_synced(text: str) -> bool:
