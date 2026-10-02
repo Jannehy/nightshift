@@ -225,26 +225,40 @@
             || /[A-Za-z]Error\b/.test(line)) return "err";
         return "";
       }
+      // The run closes with "Errors in this run (N):" and repeats each entry
+      // as a bullet underneath. Counting coloured lines therefore counts one
+      // failure three times: once where it happened, once in the heading,
+      // once in the bullet. Where the server states a number, that number
+      // wins; the tally is only a fallback for a run still in progress.
+      const ERR_TOTAL = /Errors in this run \((\d+)\)/;
+      const MISS_TOTAL = /Not found \((\d+)\)/;
+      function isSummaryLine(line) {
+        const body = line.replace(/^[\s]*\[[^\]]*\]\s*/, "").trim();
+        return body.startsWith("•") || ERR_TOTAL.test(line) || MISS_TOTAL.test(line);
+      }
       let errCount = 0, missCount = 0, finished = false;
+      let errStated = null, missStated = null;
       function renderSummary() {
         // Collapsed, the console has to answer two questions on its own:
         // is it done, and did anything go wrong.
         const parts = [];
         parts.push(NS.t(finished ? "console.done" : "console.running"));
-        if (errCount) {
-          parts.push(NS.t(errCount === 1 ? "console.error.one"
+        const errShown = errStated !== null ? errStated : errCount;
+        const missShown = missStated !== null ? missStated : missCount;
+        if (errShown) {
+          parts.push(NS.t(errShown === 1 ? "console.error.one"
                                          : "console.error.many")
-                       .replace("{n}", errCount));
+                       .replace("{n}", errShown));
         }
-        if (missCount) {
-          parts.push(NS.t(missCount === 1 ? "console.missing.one"
+        if (missShown) {
+          parts.push(NS.t(missShown === 1 ? "console.missing.one"
                                           : "console.missing.many")
-                       .replace("{n}", missCount));
+                       .replace("{n}", missShown));
         }
         const summary = $("log-summary");
         summary.textContent = parts.join(" · ");
-        summary.classList.toggle("has-err", errCount > 0);
-        summary.classList.toggle("has-miss", errCount === 0 && missCount > 0);
+        summary.classList.toggle("has-err", errShown > 0);
+        summary.classList.toggle("has-miss", errShown === 0 && missShown > 0);
       }
       document.addEventListener("ns:lang", renderSummary);
       function addLog(line) {
@@ -254,8 +268,14 @@
         log.appendChild(el);
         log.scrollTop = log.scrollHeight;
         $("log-count").textContent = ++lineCount;
-        if (el.className === "err") { errCount++; }
-        if (el.className === "warn") { missCount++; }
+        const stated = ERR_TOTAL.exec(line);
+        if (stated) { errStated = +stated[1]; }
+        const statedMiss = MISS_TOTAL.exec(line);
+        if (statedMiss) { missStated = +statedMiss[1]; }
+        if (!isSummaryLine(line)) {
+          if (el.className === "err") { errCount++; }
+          if (el.className === "warn") { missCount++; }
+        }
         renderSummary();
       }
       let statusKey = null, statusN = null;
@@ -279,7 +299,8 @@
       }
       function reset() {
         log.innerHTML = ""; lineCount = 0;
-        errCount = 0; missCount = 0; finished = false; renderSummary();
+        errCount = 0; missCount = 0; finished = false;
+        errStated = null; missStated = null; renderSummary();
         card.classList.remove("done", "err");
         statusKey = null; statusN = null;
         bar.classList.remove("indet");
