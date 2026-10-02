@@ -1,9 +1,14 @@
-"""Synced lyrics for the library: an .lrc next to the file, and USLT inside it.
+"""Synced lyrics for the library: an .lrc beside the file, USLT and SYLT inside.
 
-Two forms are wanted, because players disagree about where lyrics live: a
-sidecar .lrc with timestamps, which is what Navidrome reads for its scrolling
-view, and a plain USLT frame in the file itself for everything that only knows
-ID3. A track is asked about only when one of the two is missing.
+Three forms are wanted, because players disagree about where lyrics live:
+a sidecar .lrc with timestamps for players that read one, a plain USLT frame
+for everything that only knows ID3, and a SYLT frame carrying the timestamps
+in the file itself.
+
+SYLT is what makes a lyric scroll in Navidrome. The sidecar does not: a check
+of this library on 02.10.2026 found 6063 tracks whose .lrc sat there unread
+while Navidrome showed the flat USLT text. A track is asked about only when
+one of the three is missing.
 
 Providers are tried in order and the first synced hit wins; if nothing synced
 exists, plain text still fills the USLT frame. A miss leaves the file alone —
@@ -23,10 +28,10 @@ except ImportError:                                   # pragma: no cover
 
 try:
     from mutagen.easyid3 import EasyID3
-    from mutagen.id3 import ID3, USLT
+    from mutagen.id3 import ID3, SYLT, USLT
     from mutagen.mp3 import MP3
 except ImportError:                                   # pragma: no cover
-    EasyID3 = ID3 = USLT = MP3 = None
+    EasyID3 = ID3 = SYLT = USLT = MP3 = None
 
 from .config import cfg
 
@@ -37,6 +42,7 @@ PROVIDERS = ["Lrclib", "Musixmatch", "NetEase"]
 PAUSE_SECONDS = 0.5
 
 LRC_LINE = re.compile(r"^\[\d+:\d+(?:\.\d+)?\]\s*")
+LRC_MARK = re.compile(r"^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$")
 
 
 def available() -> bool:
@@ -54,20 +60,43 @@ def _is_synced(text: str) -> bool:
     return bool(LRC_LINE.search(text or ""))
 
 
-def _has_uslt(path: Path) -> bool:
+def _marks(lrc: str) -> list[tuple[str, int]]:
+    """(text, milliseconds) per timestamped line, as SYLT wants it."""
+    out = []
+    for line in (lrc or "").splitlines():
+        hit = LRC_MARK.match(line.strip())
+        if not hit:
+            continue
+        text = hit.group(3).strip()
+        if not text:
+            continue
+        at = int(int(hit.group(1)) * 60000 + float(hit.group(2)) * 1000)
+        out.append((text, at))
+    return sorted(out, key=lambda pair: pair[1])
+
+
+def _has_frame(path: Path, name: str) -> bool:
     try:
-        return any(key.startswith("USLT") for key in ID3(path).keys())
+        return any(key.startswith(name) for key in ID3(path).keys())
     except Exception:
         return False
 
 
-def _embed(path: Path, text: str) -> None:
+def _embed(path: Path, text: str,
+           marks: list[tuple[str, int]] | None = None) -> None:
     try:
         audio = MP3(path, ID3=ID3)
         if audio.tags is None:
             audio.add_tags()
         audio.tags.delall("USLT")
         audio.tags.add(USLT(encoding=3, lang="eng", desc="", text=text))
+        if marks:
+            audio.tags.delall("SYLT")
+            # UTF-16 rather than UTF-8: v2.3 does not allow UTF-8, and the
+            # SYLT frames already in this library are written that way.
+            # format=2 counts in milliseconds, type=1 marks it as lyrics.
+            audio.tags.add(SYLT(encoding=1, lang="eng", format=2, type=1,
+                                desc="", text=marks))
         # v2.3 on purpose: the rest of the library is written that way, and
         # older players ignore v2.4 frames.
         audio.save(v2_version=3)
@@ -105,12 +134,27 @@ def fetch(paths: Iterable[str] | None = None, *, force: bool = False,
     todo = []
     for path in candidates:
         needs_lrc = force or not path.with_suffix(".lrc").exists()
-        needs_uslt = force or not _has_uslt(path)
-        if needs_lrc or needs_uslt:
-            todo.append((path, needs_lrc, needs_uslt))
+        needs_uslt = force or not _has_frame(path, "USLT")
+        needs_sylt = force or not _has_frame(path, "SYLT")
+        if needs_lrc or needs_uslt or needs_sylt:
+            todo.append((path, needs_lrc, needs_uslt, needs_sylt))
 
     result["considered"] = len(todo)
-    for path, needs_lrc, needs_uslt in todo:
+    for path, needs_lrc, needs_uslt, needs_sylt in todo:
+        # A lyric already lying beside the file needs no provider. Reading it
+        # back is also what repairs a library written before SYLT was added.
+        sidecar = path.with_suffix(".lrc")
+        if needs_sylt and not needs_lrc and sidecar.exists():
+            try:
+                local = sidecar.read_text(encoding="utf-8")
+            except OSError:
+                local = ""
+            marks = _marks(local)
+            if marks:
+                _embed(path, _plain(local), marks)
+                result["synced"] += 1
+                continue
+
         artist, title = _artist_title(path)
         if not artist or not title:
             result["missing"] += 1
@@ -121,9 +165,9 @@ def fetch(paths: Iterable[str] | None = None, *, force: bool = False,
                                         providers=PROVIDERS)
             if found and _is_synced(found):
                 if needs_lrc:
-                    path.with_suffix(".lrc").write_text(found, encoding="utf-8")
-                if needs_uslt:
-                    _embed(path, _plain(found))
+                    sidecar.write_text(found, encoding="utf-8")
+                if needs_uslt or needs_sylt:
+                    _embed(path, _plain(found), _marks(found))
                 result["synced"] += 1
             elif needs_uslt:
                 found = syncedlyrics.search(query, plain_only=True,
