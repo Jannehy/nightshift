@@ -206,11 +206,21 @@ def build_ytdlp_cmd(url: str, source: str, template: str,
                     cookie_args: list[str],
                     archive_dir: str | None = None) -> list[str]:
     fmt_args = ["-x"]
+    bild_args: list[str] = []
     if source == "YouTube":
         fmt_args = ["-f", "bestaudio/best", "-x",
                     "--audio-format", "mp3", "--audio-quality", "0"]
+        # YouTube's thumbnail is 16:9, which every player then letterboxes
+        # into a square cover slot. Crop it to the centre square instead.
+        #
+        # The conversion has to change the format for this to run at all:
+        # YouTube already serves .jpg, so --convert-thumbnails jpg is a no-op
+        # and the cropping filter is never reached. png forces the step.
+        # Cropping in EmbedThumbnail instead leaves the file with no cover.
+        bild_args = ["--convert-thumbnails", "png",
+                     "--ppa", "ThumbnailsConvertor+ffmpeg_o:-vf crop=ih:ih"]
     return (["yt-dlp"] + fmt_args
-            + ["--embed-thumbnail", "--embed-metadata"]
+            + ["--embed-thumbnail", "--embed-metadata"] + bild_args
             + (_archive_args(archive_dir) if archive_dir else [])
             + cookie_args + ["-o", template, url])
 
