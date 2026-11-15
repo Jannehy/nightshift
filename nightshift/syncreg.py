@@ -98,6 +98,69 @@ def _claimed_by_other(path: str | None, owner_id: str | None,
     return owner not in admins if owner_id is None else owner != owner_id
 
 
+def _names_path() -> Path:
+    """Where the names handed out to one-off downloads are remembered."""
+    return _registry_path().parent / "playlist-names.json"
+
+
+def _names() -> dict:
+    try:
+        with open(_names_path()) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _name_key(url: str, sources: tuple[str, ...], owner_id: str | None) -> str:
+    return f"{sources[0]}|{owner_id or ''}|{_url_key(url)}"
+
+
+def remembered_name(url: str, sources: tuple[str, ...],
+                    owner_id: str | None) -> str | None:
+    """The name this exact link already got for this owner, if any."""
+    return _names().get(_name_key(url, sources, owner_id)) or None
+
+
+def remember_name(url: str, sources: tuple[str, ...], owner_id: str | None,
+                  name: str) -> None:
+    """Pins a link to the file name it was given.
+
+    Registered syncs carry this in the registry; a one-off download carries it
+    nowhere, so downloading the same playlist twice used to look like two
+    different playlists competing for one name. On 15.11.2026 one playlist
+    downloaded three times left "…", "… (2)" and "… (3)" side by side.
+    """
+    data = _names()
+    key = _name_key(url, sources, owner_id)
+    if data.get(key) == name:
+        return
+    data[key] = name
+    path = _names_path()
+    tmp = path.with_suffix(".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def forget_name(url: str, sources: tuple[str, ...],
+                owner_id: str | None) -> None:
+    data = _names()
+    if data.pop(_name_key(url, sources, owner_id), None) is None:
+        return
+    path = _names_path()
+    tmp = path.with_suffix(".tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def _resolve_unique(title: str, url: str, sources: tuple[str, ...],
                     path_for=None, owner_id: str | None = None) -> str:
     """Unique on-disk name for a playlist within one source group.
@@ -120,19 +183,42 @@ def _resolve_unique(title: str, url: str, sources: tuple[str, ...],
     taken = {e.get("folder") or _sanitize_folder(e.get("name") or "")
              for e in entries if not _same(e.get("url"), url)}
     ownership = navidrome.playlist_ownership() if path_for else None
+    # Names this owner already gave to *other* links. Without these, two
+    # different playlists that happen to share a title would fight over one
+    # file: the ownership check below only ever protects other accounts, so
+    # the second one would quietly overwrite the first one's own file.
+    schluessel = _name_key(url, sources, owner_id)
+    vorsatz = f"{sources[0]}|{owner_id or ''}|"
+    meine_anderen = {n for k, n in _names().items()
+                     if k.startswith(vorsatz) and k != schluessel}
 
     def free(name: str) -> bool:
-        if name in taken:
+        if name in taken or name in meine_anderen:
             return False
         return not _claimed_by_other(path_for(name) if path_for else None,
                                      owner_id, ownership)
 
+    # The same link, downloaded again by the same owner, is the same playlist
+    # - not a clash with someone else's. It keeps the name it was given, so a
+    # repeat download refreshes that file instead of adding "(2)" beside it.
+    #
+    # Still only if the name is actually free. Between the two downloads the
+    # playlist may have been deleted and the name taken by another account,
+    # and handing it back then would overwrite their file - the very thing
+    # free() exists to prevent.
+    previous = remembered_name(url, sources, owner_id)
+    if previous and free(previous):
+        return previous
+
     if free(safe):
+        remember_name(url, sources, owner_id, safe)
         return safe
     n = 2
     while not free(f"{safe} ({n})"):
         n += 1
-    return f"{safe} ({n})"
+    chosen = f"{safe} ({n})"
+    remember_name(url, sources, owner_id, chosen)
+    return chosen
 
 
 def resolve_set_folder(title: str, url: str, base_dir: str | None = None,
