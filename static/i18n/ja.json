@@ -136,5 +136,9 @@
   "settings.cookies.signedout": "注意: サインインしていません",
   "cookies.signedout.title": "Cookie が機能しません",
   "cookies.signedout.line": "{kind}: サインインしていません",
+  "cookies.refused.title": "ダウンロードが拒否されています",
+  "cookies.refused.line": "{kind}: ログイン中に拒否されました",
+  "cookies.refused.hint": "設定で Cookie ファイルを空にしてください。無しならダウンロードできます。",
+  "settings.cookies.refused": "警告: ログインできていますが、ダウンロードが拒否されます",
   "settings.hint.cookie_warn_days": "有効期限に基づく追加の警告です。実際に使えるかどうかは毎晩サイトで確認します。"
 }

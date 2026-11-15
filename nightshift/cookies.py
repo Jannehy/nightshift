@@ -9,12 +9,33 @@ and revokes sessions long before the stamps run out.
 So the honest check is to use the cookies and see whether the site still knows
 us. That costs one request, which is why the result is cached and refreshed by
 the nightly run and whenever a new file is uploaded.
+
+That turned out not to be enough. On 15.11.2026 a cookie file still answered
+`"LOGGED_IN":true` on youtube.com while every download had been failing with
+HTTP 403 for ten days: Google had stopped serving media to that session but
+still recognised it on the website. The check reported green, the nightly runs
+reported "0 new tracks", and nothing pointed at the cookies.
+
+Being known and being served are two different permissions, so the check now
+asks for both. `media_check` fetches real audio through yt-dlp, the way a
+download would, and it does so twice: once with the cookie file and once
+without. Only the difference between the two is about the cookies.
+
+That second run matters more than it looks. A fresh cookie file exported the
+same evening was refused exactly like the old one - the problem was never the
+age of the cookies but that this server asks for media while signed in at all.
+A check that only ever ran "with cookies" would have called that a dead
+session and sent the user off to export another one, which is precisely the
+loop this is meant to end.
 """
 from __future__ import annotations
 
 import http.cookiejar
 import json
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -37,6 +58,36 @@ PROBES = {
     "youtube": ("https://www.youtube.com/", '"LOGGED_IN":true'),
     "soundcloud": ("https://soundcloud.com/", '"logged_in_user"'),
 }
+
+# What to fetch for the media check. Picking a fixed video turned out to be a
+# trap: on 15.11.2026 a refused session still served "Me at the zoo" and the
+# official "Never Gonna Give You Up" perfectly well, while every ordinary
+# music track came back 403. A probe that happens to pick a survivor reports
+# green for a server that cannot download a single song.
+#
+# So the probe is not a fixed URL. spotDL resolves one the same way it
+# resolves everything it downloads, which makes the probe a real sample of the
+# production path and leaves no video id to rot. The query is a catalogue song
+# that exists in every region; if it ever stops resolving, the check says
+# nothing rather than something wrong.
+PROBE_QUERY = "Coldplay Yellow"
+
+# SoundCloud goes through yt-dlp too, but spotDL cannot resolve a probe for it
+# and every track there can be taken down by its uploader. It stays on the
+# sign-in check alone - better no answer than a nightly false alarm about a
+# deleted song.
+MEDIA_KINDS = ("youtube",)
+
+# What a refusal looks like in yt-dlp's output. A refused session is a fact
+# worth reporting; anything else (no network, video gone, geo-block) is not an
+# answer about the cookies and must stay silent.
+REFUSAL_MARKERS = (
+    "http error 403",
+    "http error 401",
+    "sign in to confirm",
+    "this video is only available to",
+    "account has been terminated",
+)
 
 CACHE = Path("/config/cookie-check.json")
 CACHE_MAX_AGE = 6 * 3600
@@ -88,6 +139,79 @@ def live_check(kind: str, path: str) -> bool | None:
     return marker in body
 
 
+def _probe_url() -> str | None:
+    """A music URL of the kind the downloads actually use, resolved now."""
+    if not shutil.which("spotdl"):
+        return None
+    try:
+        proc = subprocess.run(["spotdl", "url", PROBE_QUERY],
+                              capture_output=True, text=True, timeout=120)
+    except Exception:
+        return None
+    for line in (proc.stdout or "").splitlines():
+        line = line.strip()
+        if line.startswith("http"):
+            return line
+    return None
+
+
+def _fetch(url: str, cookie_file: str | None) -> tuple[bool, str]:
+    """Downloads the probe once. Returns (did a file arrive, what was said)."""
+    cmd = ["yt-dlp"]
+    if cookie_file:
+        cmd += ["--cookies", cookie_file]
+    with tempfile.TemporaryDirectory(prefix="cookie-probe-") as tmp:
+        cmd += ["--no-playlist", "--no-warnings", "--no-progress",
+                "-f", "bestaudio/worst", "-o", str(Path(tmp) / "probe.%(ext)s"),
+                url]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=180)
+        except Exception:
+            return False, ""
+        # The file is the proof. yt-dlp can exit 0 having skipped everything,
+        # and it can exit non-zero after a post-processing hiccup on a file
+        # that arrived perfectly well.
+        arrived = any(Path(tmp).iterdir())
+    return arrived, f"{proc.stdout or ''}{proc.stderr or ''}".lower()
+
+
+def media_check(kind: str, path: str) -> bool | None:
+    """True if the cookies still get us media, False if they are in the way.
+
+    The question is deliberately comparative. "Can this server download" and
+    "can it download *with these cookies*" are different questions, and only
+    the second one is about the cookie file. So the probe runs twice, with the
+    cookies and without, and the verdict is the difference between the two:
+
+        with  without  verdict
+        ----  -------  -------------------------------------------------
+        yes   -        True   the cookies are fine, nothing else to ask
+        no    yes      False  the cookies are what is blocking downloads
+        no    no       None   something else is broken - not the cookies
+        no    -        None   no probe, no network, no yt-dlp: no answer
+
+    Returning None on anything inconclusive is the point. A nightly check that
+    cries wolf on a flaky connection teaches people to ignore it.
+    """
+    if kind not in MEDIA_KINDS or not path or not Path(path).is_file():
+        return None
+    if not shutil.which("yt-dlp"):
+        return None
+    url = _probe_url()
+    if not url:
+        return None
+
+    with_cookies, said = _fetch(url, path)
+    if with_cookies:
+        return True
+    if not any(marker in said for marker in REFUSAL_MARKERS):
+        return None          # it did not refuse us, it just did not work
+
+    without_cookies, _ = _fetch(url, None)
+    return False if without_cookies else None
+
+
 def _cache() -> dict:
     try:
         return json.loads(CACHE.read_text(encoding="utf-8"))
@@ -101,7 +225,12 @@ def refresh(kind: str | None = None) -> dict:
     for name in ([kind] if kind else list(KINDS)):
         section, key = KINDS[name]
         path = cfg.path(f"{section}.{key}") or ""
-        data[name] = {"signed_in": live_check(name, path), "checked_at": time.time()}
+        # Keep what was remembered about notifications - this only replaces
+        # the findings.
+        record = data.setdefault(name, {})
+        record["signed_in"] = live_check(name, path)
+        record["media_ok"] = media_check(name, path)
+        record["checked_at"] = time.time()
     try:
         CACHE.parent.mkdir(parents=True, exist_ok=True)
         CACHE.write_text(json.dumps(data), encoding="utf-8")
@@ -118,7 +247,7 @@ def status(kind: str, warn_days: int | None = None) -> dict:
     configured = cfg.path(f"{section}.{key}") or ""
     result = {"kind": kind, "path": configured, "state": "unset",
               "expires_at": None, "days_left": None, "cookies": 0,
-              "signed_in": None, "checked_at": None}
+              "signed_in": None, "media_ok": None, "checked_at": None}
     if not configured:
         return result
 
@@ -132,6 +261,7 @@ def status(kind: str, warn_days: int | None = None) -> dict:
 
     cached = _cache().get(kind) or {}
     result["signed_in"] = cached.get("signed_in")
+    result["media_ok"] = cached.get("media_ok")
     result["checked_at"] = cached.get("checked_at")
 
     relevant = session or every
@@ -140,8 +270,14 @@ def status(kind: str, warn_days: int | None = None) -> dict:
         result["expires_at"] = soonest
         result["days_left"] = round((soonest - time.time()) / 86400, 1)
 
+    # Refused media beats everything else: it is the only finding that says
+    # downloads are broken *right now*. A session can be refused while the
+    # website still greets us by name, which is exactly how ten days of empty
+    # nightly runs went unnoticed in November 2026.
+    if result["media_ok"] is False:
+        result["state"] = "refused"
     # A session the site no longer honours beats any date in the file.
-    if result["signed_in"] is False:
+    elif result["signed_in"] is False:
         result["state"] = "signed_out"
     elif result["days_left"] is not None and result["days_left"] <= 0:
         result["state"] = "expired"
@@ -193,4 +329,5 @@ def all_status(warn_days: int | None = None) -> list[dict]:
 def needs_attention(warn_days: int | None = None) -> list[dict]:
     """Only the entries a user should be told about."""
     return [s for s in all_status(warn_days)
-            if s["state"] in ("signed_out", "soon", "expired", "missing")]
+            if s["state"] in ("refused", "signed_out", "soon", "expired",
+                              "missing")]

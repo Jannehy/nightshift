@@ -179,7 +179,7 @@
         try { data = await NS.api("/api/cookies/status"); }
         catch (e) { return; }
         const bad = (data.cookies || []).filter((c) =>
-          ["signed_out", "expired", "soon"].includes(c.state));
+          ["refused", "signed_out", "expired", "soon"].includes(c.state));
         if (!bad.length) return;
         const box = $("cookie-notice");
         // A session the site no longer honours is the urgent one; a date in
@@ -187,17 +187,24 @@
         const urgent = bad.filter((c) => c.state !== "soon");
         const worst = urgent.length ? urgent[0] : bad[0];
         $("cookie-notice-title").textContent = NS.t(
-          worst.state === "signed_out" ? "cookies.signedout.title"
+          worst.state === "refused" ? "cookies.refused.title"
+          : worst.state === "signed_out" ? "cookies.signedout.title"
           : worst.state === "expired" ? "cookies.expired.title"
           : "cookies.soon.title");
         $("cookie-notice-text").textContent = bad.map((c) =>
-          c.state === "signed_out"
+          c.state === "refused"
+            ? NS.t("cookies.refused.line").replace("{kind}", c.kind)
+          : c.state === "signed_out"
             ? NS.t("cookies.signedout.line").replace("{kind}", c.kind)
           : c.state === "expired"
             ? NS.t("cookies.expired.line").replace("{kind}", c.kind)
             : NS.t("cookies.soon.line").replace("{kind}", c.kind)
                                        .replace("{n}", Math.round(c.days_left))
-        ).join(" · ") + " — " + NS.t("cookies.hint");
+        ).join(" · ") + " — "
+        // A refused session is the one case where a new file is not the
+        // answer, so it must not be told to go and fetch one.
+        + NS.t(worst.state === "refused" ? "cookies.refused.hint"
+                                         : "cookies.hint");
         box.classList.toggle("danger", urgent.length > 0);
         box.style.display = "flex";
       }

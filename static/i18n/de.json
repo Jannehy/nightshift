@@ -136,5 +136,9 @@
   "settings.cookies.signedout": "ACHTUNG: nicht angemeldet",
   "cookies.signedout.title": "Cookies funktionieren nicht mehr",
   "cookies.signedout.line": "{kind}: nicht mehr angemeldet",
+  "cookies.refused.title": "Downloads werden abgewiesen",
+  "cookies.refused.line": "{kind}: angemeldet abgewiesen",
+  "cookies.refused.hint": "Cookie-Datei in den Einstellungen leeren – ohne sie laufen die Downloads.",
+  "settings.cookies.refused": "ACHTUNG: angemeldet, aber Downloads werden abgewiesen",
   "settings.hint.cookie_warn_days": "Zusätzliche Warnung nach Ablaufdatum. Ob die Cookies wirklich noch gelten, prüft Nightshift jede Nacht direkt bei der Seite."
 }

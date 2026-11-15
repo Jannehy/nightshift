@@ -136,5 +136,9 @@
   "settings.cookies.signedout": "ATENCIÓN: sin sesión",
   "cookies.signedout.title": "Las cookies ya no funcionan",
   "cookies.signedout.line": "{kind}: sin sesión iniciada",
+  "cookies.refused.title": "Las descargas están siendo rechazadas",
+  "cookies.refused.line": "{kind}: rechazado con la sesión iniciada",
+  "cookies.refused.hint": "Borra el archivo de cookies en los ajustes: sin él las descargas funcionan.",
+  "settings.cookies.refused": "ATENCIÓN: sesión iniciada, pero las descargas se rechazan",
   "settings.hint.cookie_warn_days": "Aviso adicional según la fecha de caducidad. Si las cookies siguen sirviendo se comprueba cada noche en el sitio."
 }

@@ -136,5 +136,9 @@
   "settings.cookies.signedout": "WARNING: not signed in",
   "cookies.signedout.title": "Cookies no longer work",
   "cookies.signedout.line": "{kind}: no longer signed in",
+  "cookies.refused.title": "Downloads are being refused",
+  "cookies.refused.line": "{kind}: refused while signed in",
+  "cookies.refused.hint": "Clear the cookie file in the settings – downloads work without it.",
+  "settings.cookies.refused": "WARNING: signed in, but downloads are refused",
   "settings.hint.cookie_warn_days": "Extra warning based on the expiry date. Whether the cookies still work is checked against the site itself, every night."
 }

@@ -159,7 +159,14 @@
             // Whether the cookies actually sign in is the one thing worth
             // knowing right now - a valid file with a dead session looks
             // exactly like a good one.
-            if (data.signed_in === true) {
+            // Order matters: a refused file signs in perfectly well, and
+            // saying "signed in" about a file that cannot download anything
+            // is how an evening gets spent exporting cookies for nothing.
+            if (data.media_ok === false) {
+              zone.classList.remove("ok");
+              status.style.color = "var(--err)";
+              status.textContent += ` · ${NS.t("settings.cookies.refused")}`;
+            } else if (data.signed_in === true) {
               status.textContent += ` · ${NS.t("settings.cookies.signedin")}`;
             } else if (data.signed_in === false) {
               zone.classList.remove("ok");

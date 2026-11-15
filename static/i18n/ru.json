@@ -136,5 +136,9 @@
   "settings.cookies.signedout": "ВНИМАНИЕ: вход не выполнен",
   "cookies.signedout.title": "Cookie больше не работают",
   "cookies.signedout.line": "{kind}: вход не выполнен",
+  "cookies.refused.title": "Загрузки отклоняются",
+  "cookies.refused.line": "{kind}: отклонено при входе в аккаунт",
+  "cookies.refused.hint": "Очистите файл cookie в настройках — без него загрузки работают.",
+  "settings.cookies.refused": "ВНИМАНИЕ: вход выполнен, но загрузки отклоняются",
   "settings.hint.cookie_warn_days": "Дополнительное предупреждение по дате истечения. Работают ли cookie на самом деле, проверяется каждую ночь на сайте."
 }

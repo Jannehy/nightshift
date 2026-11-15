@@ -494,9 +494,12 @@ def create_app() -> Flask:
         if cfg.path(f"{section}.{key}") != str(path):
             cfg.save({section: {key: str(path)}})
 
-        # Check the new file straight away: whether cookies actually sign in
-        # is the only thing the user wants to know at this moment.
-        signed_in = cookies.refresh(kind).get(kind, {}).get("signed_in")
+        # Check the new file straight away. Signing in is not the whole
+        # question: a file can sign in perfectly and still be refused the
+        # audio, and the user is standing right here waiting to hear it.
+        checked = cookies.refresh(kind).get(kind, {})
+        signed_in = checked.get("signed_in")
+        media_ok = checked.get("media_ok")
 
         hosts = sorted({l.split("\t")[0].lstrip(".") for l in lines})
         # Saved either way - the file is valid, it just may be the wrong one.
@@ -505,6 +508,7 @@ def create_app() -> Flask:
         passt = any(erwartet in host for host in hosts)
         return jsonify({"ok": True, "path": str(path), "cookies": len(lines),
                         "hosts": hosts[:4], "signed_in": signed_in,
+                        "media_ok": media_ok,
                         "warning": None if passt else erwartet})
 
     @app.route("/api/config/reset", methods=["POST"])

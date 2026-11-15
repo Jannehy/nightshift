@@ -61,6 +61,19 @@ NOISE_PATTERNS = [
 
 BLOCK_KEYWORDS = ["sign in to confirm", "http error 429", "rate limit"]
 
+# How spotDL reports a track whose audio it could not fetch. It hard-wraps at
+# eighty columns, so the message arrives in two pieces:
+#
+#     AudioProviderError: YT-DLP download error -
+#     https://music.youtube.com/watch?v=9qnqYL0eNNI
+#
+# Both used to disappear - the first into NOISE_PATTERNS, the second because a
+# bare URL looks like nothing worth printing. On 15.11.2026 a run in which all
+# 55 remaining tracks failed this way therefore read as a quiet list of links
+# and finished with "Done! 7 tracks processed", those seven being duplicates
+# it had skipped. Whatever else is noise, this line is the outcome.
+PROVIDER_FAILURE = ("audioprovidererror", "yt-dlp download error")
+
 
 def playlist_title(url: str) -> str | None:
     """The playlist's real title, via Spotify's public oEmbed endpoint.
@@ -109,9 +122,11 @@ def _spotdl_base_cmd() -> list[str]:
     return cmd
 
 
-def _download_cmd(url: str, m3u_name: str | None = None) -> list[str]:
+def _download_cmd(url: str, m3u_name: str | None = None,
+                  use_cookies: bool = True) -> list[str]:
     cmd = _spotdl_base_cmd() + ["download", url]
-    if cfg.downloads.youtube_cookie_file and os.path.exists(cfg.downloads.youtube_cookie_file):
+    if (use_cookies and cfg.downloads.youtube_cookie_file
+            and os.path.exists(cfg.downloads.youtube_cookie_file)):
         cmd += ["--cookie-file", cfg.downloads.youtube_cookie_file]
     cmd += [
         "--output", cfg.library.spotify_output_template,
@@ -126,6 +141,12 @@ def _download_cmd(url: str, m3u_name: str | None = None) -> list[str]:
         # itself — but not reliably, hence the check in _handle_playlist.
         cmd += ["--m3u", "{list-name}.m3u8"]
     return cmd
+
+
+def _cookie_file_in_use() -> bool:
+    """Whether a YouTube cookie file is configured and actually there."""
+    configured = cfg.downloads.youtube_cookie_file
+    return bool(configured and os.path.exists(configured))
 
 
 def find_new_tracks(since_timestamp: float) -> list[str]:
@@ -193,6 +214,11 @@ def run_spotify_download(job_id: str, url: str,
         total = 0
         done = 0
         failed_tracks: list[str] = []
+        # Cookies are a help until they are the problem. YouTube can refuse
+        # media to a signed-in session while serving the same track to an
+        # anonymous one, and then every single download fails. A fresh cookie
+        # file does not help - being signed in is what is refused.
+        use_cookies = True
 
         for attempt in range(1, max_attempts + 1):
             if attempt > 1:
@@ -209,12 +235,15 @@ def run_spotify_download(job_id: str, url: str,
                  progress=3)
 
             proc = subprocess.Popen(
-                _download_cmd(url, pl_unique), cwd=cfg.library.music_root,
+                _download_cmd(url, pl_unique, use_cookies),
+                cwd=cfg.library.music_root,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
             )
 
             attempt_done = 0
+            attempt_downloaded = 0
+            attempt_refused = 0
             had_block_error = False
 
             for line in proc.stdout:
@@ -236,6 +265,8 @@ def run_spotify_download(job_id: str, url: str,
                 if ("Downloaded" in line or "Skipping" in line
                         or ('"' in line and "found" in line.lower())):
                     attempt_done += 1
+                    if "Downloaded" in line:
+                        attempt_downloaded += 1
                     done = max(done, attempt_done)
                     m = re.search(r'"([^"]+)"', line)
                     track = m.group(1) if m else "..."
@@ -244,6 +275,14 @@ def run_spotify_download(job_id: str, url: str,
                          current=done, total=total, track=track,
                          progress=progress, line=line)
                     log.write(line)
+                    continue
+
+                if any(p in line.lower() for p in PROVIDER_FAILURE):
+                    # Counted, not announced: on a playlist where every track
+                    # is refused this would be fifty-five identical lines,
+                    # each one counted as an error of its own. The attempt
+                    # says it once, below, when it knows how it ended.
+                    attempt_refused += 1
                     continue
 
                 m_fail = re.search(r"failed to get metadata for: (.+?)$", line)
@@ -263,6 +302,21 @@ def run_spotify_download(job_id: str, url: str,
                 log.write(line)
 
             proc.wait()
+
+            # A run that refused every track and downloaded none is not a
+            # success, whatever spotDL's exit code says - and on 15.11.2026 it
+            # said 0. If cookies were in play, they are the first suspect:
+            # dropping them costs one more attempt and fixed every track that
+            # evening. Only worth doing while there is an attempt left.
+            if (use_cookies and attempt_refused and not attempt_downloaded
+                    and _cookie_file_in_use() and attempt < max_attempts):
+                use_cookies = False
+                note = (f"⚠ {attempt_refused} track(s) refused while signed in "
+                        f"– retrying without cookies")
+                emit(q, "log", line=note)
+                log.write(note)
+                continue
+
             if proc.returncode == 0:
                 success = True
                 break
@@ -271,6 +325,13 @@ def run_spotify_download(job_id: str, url: str,
                         f"(exit {proc.returncode}, block={had_block_error})")
             emit(q, "log", line=fail_msg)
             log.write(fail_msg)
+
+        # Said once, at the end, and only when the retry did not save it.
+        if attempt_refused and not attempt_downloaded:
+            refused_msg = (f"✗ {attempt_refused} track(s) refused by the "
+                           f"server - no audio was served for them")
+            emit(q, "log", line=refused_msg)
+            log.write(refused_msg)
 
         if not success:
             err_msg = f"No success after {max_attempts} attempts"

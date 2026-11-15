@@ -136,5 +136,9 @@
   "settings.cookies.signedout": "ATTENTION : non connecté",
   "cookies.signedout.title": "Les cookies ne fonctionnent plus",
   "cookies.signedout.line": "{kind} : plus connecté",
+  "cookies.refused.title": "Les téléchargements sont refusés",
+  "cookies.refused.line": "{kind} : refusé alors que connecté",
+  "cookies.refused.hint": "Videz le fichier de cookies dans les réglages : sans lui, les téléchargements fonctionnent.",
+  "settings.cookies.refused": "ATTENTION : connecté, mais les téléchargements sont refusés",
   "settings.hint.cookie_warn_days": "Avertissement supplémentaire selon la date d'expiration. La validité réelle est vérifiée chaque nuit auprès du site."
 }

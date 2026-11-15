@@ -136,5 +136,9 @@
   "settings.cookies.signedout": "UWAGA: brak zalogowania",
   "cookies.signedout.title": "Pliki cookie już nie działają",
   "cookies.signedout.line": "{kind}: brak zalogowania",
+  "cookies.refused.title": "Pobieranie jest odrzucane",
+  "cookies.refused.line": "{kind}: odrzucone po zalogowaniu",
+  "cookies.refused.hint": "Wyczyść plik cookies w ustawieniach – bez niego pobieranie działa.",
+  "settings.cookies.refused": "UWAGA: zalogowano, ale pobieranie jest odrzucane",
   "settings.hint.cookie_warn_days": "Dodatkowe ostrzeżenie na podstawie daty ważności. To, czy pliki cookie nadal działają, sprawdzane jest co noc bezpośrednio w serwisie."
 }

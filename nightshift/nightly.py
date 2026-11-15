@@ -26,7 +26,8 @@ from .config import cfg
 from . import cookies, lyrics, notify, tagtidy
 from .downloader import (AUDIO_EXTS, build_ytdlp_cmd,
                          drop_redundant_copies, write_m3u_for_dirs)
-from .spotify import _ensure_playlist_directive, looks_unresolved
+from .spotify import (PROVIDER_FAILURE, _ensure_playlist_directive,
+                      looks_unresolved)
 from .logs import LiveLog, nightly_log_path
 
 _lock = threading.Lock()
@@ -195,6 +196,10 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
         _log_line(log, emit_fn, f"  Syncing: {name}")
         before = count_spotify()
         success = False
+        # Same story as in the interactive download: a signed-in session that
+        # YouTube refuses makes every track fail while spotDL still exits 0.
+        # See the comment on PROVIDER_FAILURE in spotify.py.
+        use_cookies = True
 
         for attempt in range(1, int(cfg.nightly.max_attempts) + 1):
             _log_line(log, emit_fn,
@@ -209,7 +214,8 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
             if cfg.nightly.keep_removed_tracks:
                 cmd.append("--sync-without-deleting")
             cookie = cfg.downloads.youtube_cookie_file
-            if cookie and os.path.exists(cookie):
+            have_cookie = bool(cookie and os.path.exists(cookie))
+            if use_cookies and have_cookie:
                 cmd += ["--cookie-file", cookie]
             try:
                 # Stream spotDL output live: on a timeout the captured
@@ -235,15 +241,28 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
                 # Collect output quietly; it is shown only on failure so
                 # the normal nightly log stays short and readable.
                 tail = deque(maxlen=15)
+                refused = 0
                 try:
                     for line in proc.stdout:
                         line = line.rstrip()
+                        if any(f in line.lower() for f in PROVIDER_FAILURE):
+                            refused += 1
                         if line and not _is_spotdl_noise(line):
                             tail.append(line)
                     rc = proc.wait()
                 finally:
                     timed_out = not killer.is_alive()
                     killer.cancel()
+                # Nothing arrived and tracks were refused: try once more
+                # without the cookies before believing the exit code.
+                if (use_cookies and have_cookie and refused
+                        and count_spotify() == before
+                        and attempt < int(cfg.nightly.max_attempts)):
+                    use_cookies = False
+                    _log_line(log, emit_fn,
+                              f"    ⚠ {refused} track(s) refused while signed "
+                              f"in - retrying without cookies")
+                    continue
                 if rc == 0:
                     success = True
                     break
@@ -311,9 +330,16 @@ def _cookie_step(log, emit_fn) -> None:
         return
 
     pending = [e for e in entries
-               if e["state"] in ("signed_out", "expired", "missing", "soon")]
+               if e["state"] in ("refused", "signed_out", "expired", "missing",
+                                 "soon")]
     for entry in pending:
-        if entry["state"] == "signed_out":
+        if entry["state"] == "refused":
+            # Deliberately not "upload a new file": a fresh export is refused
+            # the same way, and sending the user to re-export it is the loop
+            # this message exists to break.
+            text = (f"{entry['kind']}: downloads are refused while signed in "
+                    f"- they work without the cookie file")
+        elif entry["state"] == "signed_out":
             text = f"{entry['kind']}: cookies are no longer signed in"
         elif entry["state"] == "expired":
             text = f"{entry['kind']}: cookies expired"

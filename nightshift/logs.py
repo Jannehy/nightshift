@@ -80,6 +80,10 @@ _PASSTHROUGH = re.compile(r"^\||[│╰╭┌└─❱]")
 # later as "✓ <name>: n new tracks" or "✗ <name> sync failed", and listing the
 # intermediate states would report a run as broken that repaired itself.
 _ATTEMPT = re.compile(r"attempt \d+ (failed|/)", re.IGNORECASE)
+# Same reasoning for the cookie fallback: "retrying without cookies" is the
+# run repairing itself. Counting the announcement as an error made a run that
+# recovered every single track end with "Errors in this run (2)".
+_RECOVERY = re.compile(r"retrying without cookies", re.IGNORECASE)
 # The closing statistics: "Playlists failed:     0" is a count, not a failure,
 # and reading it as one turned a clean run into a run with one error.
 _COUNT = re.compile(r"^[^:]{1,40}:\s*\d+\s*$")
@@ -94,7 +98,8 @@ def problem_kind(line: str) -> str | None:
         return None
     # The timestamp prefix has to come off before either pattern can match.
     body = re.sub(r"^\[[^\]]+\]\s*", "", stripped)
-    if _PASSTHROUGH.search(body) or _ATTEMPT.search(body) or _COUNT.match(body):
+    if (_PASSTHROUGH.search(body) or _ATTEMPT.search(body)
+            or _RECOVERY.search(body) or _COUNT.match(body)):
         return None
     if line.startswith("=== DONE") or line.startswith("✓"):
         return None
