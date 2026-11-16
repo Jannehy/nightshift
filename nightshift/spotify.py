@@ -117,6 +117,18 @@ def looks_unresolved(name: str) -> bool:
             or name.strip("_ ").lower() in ("list-name", "list name"))
 
 
+# YouTube ties the media URLs of some clients to a session PO token. Since
+# 2026.10 yt-dlp asks the token-bound "tv_samsung" client first, and its URLs
+# are the ones that come back as HTTP 403 for a random part of the tracks.
+# Measured on 16.11.2026 against the same eight tracks: 20 of 24 downloads
+# with the default client list, 16 of 16 with this one client excluded.
+# An unknown name only produces a warning ("Skipping unsupported client"),
+# so this stays harmless once the client disappears upstream.
+YTDLP_ARGS = [
+    "--yt-dlp-args=--extractor-args youtube:player_client=default,-tv_samsung",
+]
+
+
 def _spotdl_base_cmd() -> list[str]:
     cmd = ["spotdl"]
     return cmd
@@ -133,7 +145,7 @@ def _download_cmd(url: str, m3u_name: str | None = None,
         "--format", cfg.downloads.spotify_format,
         "--bitrate", cfg.downloads.spotify_bitrate,
         "--threads", str(cfg.downloads.spotify_threads),
-    ]
+    ] + YTDLP_ARGS
     if m3u_name:
         cmd += ["--m3u", f"{m3u_name}.m3u8"]
     elif "playlist" in url:
@@ -579,7 +591,8 @@ def _handle_playlist(q, log: LiveLog, url: str,
         os.makedirs(sync_dir, exist_ok=True)
         safe = re.sub(r"[^\w\- ()]", "_", unique).strip()
         spotdl_file = f"{sync_dir}/{safe}.spotdl"
-        cmd = _spotdl_base_cmd() + ["sync", url, "--save-file", spotdl_file]
+        cmd = (_spotdl_base_cmd() + ["sync", url, "--save-file", spotdl_file]
+               + YTDLP_ARGS)
         if cfg.downloads.youtube_cookie_file and os.path.exists(cfg.downloads.youtube_cookie_file):
             cmd += ["--cookie-file", cfg.downloads.youtube_cookie_file]
         r = subprocess.run(cmd, capture_output=True, text=True)

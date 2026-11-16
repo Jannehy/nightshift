@@ -57,6 +57,16 @@ Nightshift is a Flask application that orchestrates established tools
   It is pinned to a nightly build: YouTube's JS challenge moves faster than
   the stable channel, and a version that cannot solve it fails every
   download with HTTP 403 rather than degrading gracefully.
+- **One YouTube client is excluded** (`YTDLP_ARGS` in `spotify.py`, passed to
+  every spotDL call as `--yt-dlp-args`). YouTube ties the media URLs of some
+  clients to a session PO token, which an unauthenticated downloader cannot
+  mint. Since 2026.10 yt-dlp queries the token-bound `tv_samsung` client
+  first and its URLs win the format selection, so a random part of the tracks
+  dies with HTTP 403 while the rest succeeds — the hardest failure to read,
+  because it moves between runs. Measured against the same eight tracks on
+  16.11.2026: 20 of 24 downloads with the default client list, 16 of 16 with
+  `tv_samsung` excluded. An unknown client name only warns, so the exclusion
+  turns into a no-op if the client ever disappears.
 - **deno** is baked into the image; it must be on the PATH of the process
   running yt-dlp, or some YouTube downloads fail with
   "Requested format is not available".

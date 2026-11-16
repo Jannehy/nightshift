@@ -1,3 +1,3 @@
 """Nightshift – your music library's night shift."""
 
-__version__ = "1.8.6"
+__version__ = "1.8.7"

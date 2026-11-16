@@ -26,8 +26,8 @@ from .config import cfg
 from . import cookies, lyrics, notify, tagtidy
 from .downloader import (AUDIO_EXTS, build_ytdlp_cmd,
                          drop_redundant_copies, write_m3u_for_dirs)
-from .spotify import (PROVIDER_FAILURE, _ensure_playlist_directive,
-                      looks_unresolved)
+from .spotify import (PROVIDER_FAILURE, YTDLP_ARGS,
+                      _ensure_playlist_directive, looks_unresolved)
 from .logs import LiveLog, nightly_log_path
 
 _lock = threading.Lock()
@@ -210,7 +210,7 @@ def _spotdl_sync_step(log, emit_fn) -> tuple[int, int, int]:
                    "--bitrate", cfg.downloads.spotify_bitrate,
                    "--threads", str(cfg.downloads.spotify_threads),
                    "--save-errors", "errors.txt",
-                   "--m3u", f"{name}.m3u8"]
+                   "--m3u", f"{name}.m3u8"] + YTDLP_ARGS
             if cfg.nightly.keep_removed_tracks:
                 cmd.append("--sync-without-deleting")
             cookie = cfg.downloads.youtube_cookie_file
