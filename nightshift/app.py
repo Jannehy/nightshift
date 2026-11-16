@@ -217,6 +217,31 @@ def create_app() -> Flask:
                         headers={"Cache-Control": "no-cache",
                                  "X-Accel-Buffering": "no"})
 
+    # A live run writes. Fifteen minutes of silence in an unfinished log is
+    # the same threshold the rebuild guard uses to decide a run is over.
+    STALE_SECONDS = 15 * 60
+
+    def _download_running(state: dict) -> bool:
+        """Whether this user's download log describes a run that is still going.
+
+        The end markers alone are not enough. A run that was killed - a
+        container rebuild, a crash, an OOM - never gets its marker, and the
+        interface then shows "running" forever and refuses to start anything
+        new. That happened on 16.11.2026 and left the queue blocked.
+
+        Two things know better. The queue itself is exact: every download goes
+        through the one worker thread, so an empty queue means nothing is
+        running anywhere - which is also the state after a restart, when the
+        in-memory queue is empty but the log file still has no marker. And if
+        the worker is busy with something else, the file's age decides.
+        """
+        if not state["log"] or state["finished"] or state["failed"]:
+            return False
+        status = queue_status()
+        if not status["running"] and not status["pending"]:
+            return False
+        return (time.time() - state["mtime"]) < STALE_SECONDS
+
     @app.route("/download-log")
     @auth.login_required
     def download_log():
@@ -224,8 +249,7 @@ def create_app() -> Flask:
         # next person's run must not overwrite what this user sees.
         user = auth.current_user()["username"]
         state = LiveLog(download_log_path(user)).read_state()
-        state["running"] = bool(state["log"]) and not (
-            state["finished"] or state["failed"])
+        state["running"] = _download_running(state)
         return jsonify(state)
 
     # ------------------------------------------------------------------

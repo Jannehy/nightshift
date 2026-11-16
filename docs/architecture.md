@@ -67,6 +67,13 @@ Nightshift is a Flask application that orchestrates established tools
   16.11.2026: 20 of 24 downloads with the default client list, 16 of 16 with
   `tv_samsung` excluded. An unknown client name only warns, so the exclusion
   turns into a no-op if the client ever disappears.
+- **An unfinished log does not mean a running job.** The download log's
+  DONE/FAILED markers tell the interface whether a run is still going, but a
+  run that was killed never writes one, and the interface then blocks the
+  queue forever. `/download-log` therefore also asks the job queue — every
+  download goes through the one worker, so an empty queue means nothing is
+  running, which is exactly the state after a restart — and falls back to the
+  log file's age (15 minutes, the same threshold the rebuild guard uses).
 - **deno** is baked into the image; it must be on the PATH of the process
   running yt-dlp, or some YouTube downloads fail with
   "Requested format is not available".
