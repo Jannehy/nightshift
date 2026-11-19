@@ -134,6 +134,17 @@ lastgenre:
   # Rather no genre than a wrong one.
   fallback: ''
   force: yes
+  # Keep a genre the file already carries when last.fm answers with nothing.
+  # Without this, force rewrites the tag with the empty fallback and a genre
+  # the downloader had supplied is lost. From 2026-12-01 last.fm wants a Pro
+  # subscription behind every API key, including the shared one beets builds
+  # in, so "nothing" may become the normal answer overnight.
+  #
+  # It is not purely a safety net: an existing genre is offered alongside the
+  # fetched ones and comes first, so with count 1 it wins whenever it is on
+  # the whitelist. The whitelist still decides – a genre that is not on it is
+  # dropped here exactly as a fetched one would be.
+  keep_existing: yes
   whitelist: /config/beets/genres.txt
   min_weight: 10
   title_case: yes
