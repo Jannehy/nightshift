@@ -18,7 +18,7 @@ import urllib.request
 from os.path import basename, dirname, getmtime, splitext
 from pathlib import Path
 
-from . import lyrics, navidrome, syncreg
+from . import lyrics, navidrome, notify, syncreg
 from mutagen.id3 import ID3, TPOS
 
 from .config import cfg
@@ -161,6 +161,113 @@ def _cookie_file_in_use() -> bool:
     return bool(configured and os.path.exists(configured))
 
 
+def _spotify_client():
+    """The one spotDL Spotify client, created on first use.
+
+    spotDL's client is a singleton: a second init raises SpotifyError. Two
+    places in here need it, so whoever got there first used to leave the
+    other one with an exception and an empty result.
+    """
+    from spotdl.utils.config import DEFAULT_CONFIG
+    from spotdl.utils.spotify import SpotifyClient
+    try:
+        return SpotifyClient()
+    except Exception:
+        SpotifyClient.init(client_id=DEFAULT_CONFIG["client_id"],
+                           client_secret=DEFAULT_CONFIG["client_secret"],
+                           user_auth=False, cache_path=None, no_cache=True)
+        return SpotifyClient()
+
+
+def expected_tracks(url: str) -> list[tuple[str, str]]:
+    """(track id, "Artist - Title") for every track Spotify lists at `url`.
+
+    Only asked when a run came back short. Naming what is absent needs a
+    reference list, and the downloader's own output only ever mentions what
+    it managed to fetch.
+    """
+    try:
+        spotify = _spotify_client()
+    except Exception:
+        return []
+
+    def named(item):
+        artists = item.get("artists") or []
+        who = artists[0].get("name", "?") if artists else "?"
+        return item.get("id") or "", f"{who} - {item.get('name', '?')}"
+
+    out = []
+    try:
+        if "/album/" in url:
+            album_id = url.split("/album/")[-1].split("?")[0]
+            offset = 0
+            while True:
+                page = spotify.album_tracks(album_id, limit=50, offset=offset)
+                out += [named(i) for i in page.get("items", [])]
+                if not page.get("next"):
+                    break
+                offset += 50
+        elif "/track/" in url:
+            out.append(named(spotify.track(url)))
+    except Exception:
+        return []
+    return [(i, n) for i, n in out if i]
+
+
+def _track_ids_on_disk(folders: set) -> set:
+    """Spotify track ids of the files lying in these folders.
+
+    spotDL writes the track's Spotify URL into the WOAS frame, which makes a
+    file recognisable without trusting its name. The name is the one thing
+    not to trust here: spotDL hard-wraps its console output at eighty
+    columns, so a long "Downloaded ..." line arrives in pieces.
+    """
+    ids = set()
+    for folder in folders:
+        try:
+            entries = list(Path(folder).iterdir())
+        except OSError:
+            continue
+        for path in entries:
+            if not path.is_file():
+                continue
+            try:
+                source = ID3(path).get("WOAS")
+            except Exception:
+                continue
+            link = str(source.url) if source is not None else ""
+            if "/track/" in link:
+                ids.add(link.split("/track/")[-1].split("?")[0])
+    return ids
+
+
+def missing_tracks(url: str, total: int, done: int,
+                   new_files: list[str]) -> tuple[int, list[str]]:
+    """How far a run came up short, and which tracks are absent by name.
+
+    For an album or a single track the answer comes from Spotify's own track
+    list against the files on disk, and that answer is the one that counts -
+    it names what is absent and it does not miscount a line spotDL phrased
+    unexpectedly.
+
+    Everything else falls back on counting: spotDL's "Found N songs" against
+    the tracks it reported on, downloads and skipped duplicates alike. A
+    playlist cannot be checked against its folder, because it scatters its
+    tracks over as many folders as it has albums, and a track skipped
+    because it already sat in a folder nobody looked at would be named as
+    missing although it is right there.
+    """
+    counted = total - done if total and done < total else 0
+    if "/album/" in url or "/track/" in url:
+        expected = expected_tracks(url)
+        folders = {str(Path(f).parent) for f in new_files}
+        present = _track_ids_on_disk(folders) if folders else set()
+        if expected and present:
+            missing = [name for tid, name in expected if tid not in present]
+            return len(missing), missing
+    return counted, []
+
+
 def find_new_tracks(since_timestamp: float) -> list[str]:
     """New files in the Spotify target folder since the given timestamp."""
     ext = f".{cfg.downloads.spotify_format}"
@@ -226,6 +333,7 @@ def run_spotify_download(job_id: str, url: str,
         total = 0
         done = 0
         failed_tracks: list[str] = []
+        refused_urls: list[str] = []
         # Cookies are a help until they are the problem. YouTube can refuse
         # media to a signed-in session while serving the same track to an
         # anonymous one, and then every single download fails. A fresh cookie
@@ -257,6 +365,7 @@ def run_spotify_download(job_id: str, url: str,
             attempt_downloaded = 0
             attempt_refused = 0
             had_block_error = False
+            awaiting_url = False
 
             for line in proc.stdout:
                 line = line.rstrip()
@@ -277,6 +386,7 @@ def run_spotify_download(job_id: str, url: str,
                 if ("Downloaded" in line or "Skipping" in line
                         or ('"' in line and "found" in line.lower())):
                     attempt_done += 1
+                    awaiting_url = False
                     if "Downloaded" in line:
                         attempt_downloaded += 1
                     done = max(done, attempt_done)
@@ -295,6 +405,16 @@ def run_spotify_download(job_id: str, url: str,
                     # each one counted as an error of its own. The attempt
                     # says it once, below, when it knows how it ended.
                     attempt_refused += 1
+                    awaiting_url = True
+                    continue
+
+                # The URL on the line after a refusal is the only trace of
+                # which track it was, so it is kept instead of printed on its
+                # own. A bare link in the log says nothing to anybody.
+                if awaiting_url and line.startswith("http"):
+                    if line not in refused_urls:
+                        refused_urls.append(line)
+                    awaiting_url = False
                     continue
 
                 m_fail = re.search(r"failed to get metadata for: (.+?)$", line)
@@ -375,17 +495,61 @@ def run_spotify_download(job_id: str, url: str,
                 emit(q, "log", line=f"  • {t}")
                 log.write(f"  • {t}")
 
+        # Until 21.11.2026 a run that fetched most of an album ended with
+        # "Done!" and nothing else. The refusal lines were counted and then
+        # dropped, and that count was only ever announced when *every* track
+        # had failed - so one age-restricted track out of 34 left no trace
+        # but a bare YouTube URL in the log (GTA VI album, 20.11.2026). What
+        # Spotify lists is the yardstick, and it is asked whenever the run
+        # came back short.
+        short_by, missing = missing_tracks(url, total, done, new_files)
+        if short_by:
+            _report_shortfall(q, log, url, short_by, total, missing,
+                              refused_urls)
+
         log.summarise(lambda line: emit(q, "log", line=line))
 
         done_msg = f"Done! {done} tracks processed."
         if failed_tracks:
             done_msg += f" ({len(failed_tracks)} failed)"
+        if short_by:
+            done_msg += f" ({short_by} missing)"
         log.finish(done_msg)
         emit(q, "done", message=done_msg, progress=100, total_tracks=done)
 
     except Exception as e:
         log.fail(str(e))
         emit(q, "error", message=str(e))
+
+
+def _report_shortfall(q, log: LiveLog, url: str, short_by: int, total: int,
+                      missing: list[str], refused: list[str]) -> None:
+    """Puts the tracks that never arrived into the log and onto the phone."""
+    head = (f"\u26a0 {short_by} of {total} tracks did not arrive"
+            if total else f"\u26a0 {short_by} track(s) did not arrive")
+    emit(q, "log", line="")
+    emit(q, "log", line=head)
+    log.write(head)
+    for name in missing:
+        emit(q, "log", line=f"  \u2022 {name}")
+        log.write(f"  \u2022 {name}")
+    for link in refused:
+        line = f"  refused by the audio source: {link}"
+        emit(q, "log", line=line)
+        log.write(line)
+
+    if not notify.enabled():
+        return
+    body = [head.replace("\u26a0 ", "")]
+    body += [f"\u2022 {name}" for name in missing[:10]]
+    if len(missing) > 10:
+        body.append(f"\u2026 and {len(missing) - 10} more")
+    if not missing:
+        body += refused[:5]
+    body.append(url)
+    title = ("Nightshift: 1 track missing" if short_by == 1
+             else f"Nightshift: {short_by} tracks missing")
+    notify.send(title, "\n".join(body), priority="high", tags="warning")
 
 
 def fix_disc_numbers(paths: list[str]) -> list[tuple[str, str, str]]:
@@ -421,12 +585,7 @@ def fix_disc_numbers(paths: list[str]) -> list[tuple[str, str, str]]:
         return fixed
 
     try:
-        from spotdl.utils.config import DEFAULT_CONFIG
-        from spotdl.utils.spotify import SpotifyClient
-        SpotifyClient.init(client_id=DEFAULT_CONFIG["client_id"],
-                           client_secret=DEFAULT_CONFIG["client_secret"],
-                           user_auth=False, cache_path=None, no_cache=True)
-        spotify = SpotifyClient()
+        spotify = _spotify_client()
     except Exception:
         return fixed
 
