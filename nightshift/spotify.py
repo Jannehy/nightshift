@@ -364,6 +364,12 @@ def run_spotify_download(job_id: str, url: str,
             attempt_done = 0
             attempt_downloaded = 0
             attempt_refused = 0
+            # Only the attempt that ended the run counts. On 26.11.2026 the
+            # signed-in attempt was refused 56 times, the anonymous retry
+            # fetched 53 of 57 - and the log still listed all 56 links as
+            # refused, burying the two that really were.
+            refused_urls = []
+            downloaded_urls: set[str] = set()
             had_block_error = False
             awaiting_url = False
 
@@ -389,6 +395,7 @@ def run_spotify_download(job_id: str, url: str,
                     awaiting_url = False
                     if "Downloaded" in line:
                         attempt_downloaded += 1
+                        downloaded_urls.update(re.findall(r"https?://\S+", line))
                     done = max(done, attempt_done)
                     m = re.search(r'"([^"]+)"', line)
                     track = m.group(1) if m else "..."
@@ -504,8 +511,16 @@ def run_spotify_download(job_id: str, url: str,
         # came back short.
         short_by, missing = missing_tracks(url, total, done, new_files)
         if short_by:
+            refused_urls = [u for u in refused_urls
+                            if u not in downloaded_urls]
             _report_shortfall(q, log, url, short_by, total, missing,
                               refused_urls)
+            # "Not found" used to hold only what spotDL called a LookupError,
+            # so a refused track was counted in "4 did not arrive" and named
+            # nowhere in the summary below it.
+            for name in missing:
+                if not any(name.lower() in m.lower() for m in log.missing):
+                    log.missing.append(f"No audio served for: {name}")
 
         log.summarise(lambda line: emit(q, "log", line=line))
 
